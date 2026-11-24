@@ -1,4 +1,6 @@
-# Verified artifacts pushed to the fork, each waiting for ONE pull request
+# Verified artifacts pushed to the fork
+
+A row marked SUBMITTED already has its pull request. The rest still need one.
 
 Why they are waiting: the Claude GitHub App is not installed on the upstream repository
 `open-goat/pequalnp-proofs`, which belongs to a third party. Every attempt to open a pull request
@@ -17,7 +19,7 @@ rules. Nothing else is changed.
 
 | branch | file | what it is | lean | open it |
 |---|---|---|---|---|
-| `R-meta-5266-1` | `lean/PEqualNP/Outside/R_meta_5266_1.lean` | reduction of L-meta-5266, the declared open core | CHECK_OK, no sorry, 3 permitted axioms | [compare](https://github.com/open-goat/pequalnp-proofs/compare/main...KSXGitHub:R-meta-5266-1) |
+| `R-meta-5266-1` | `lean/PEqualNP/Outside/R_meta_5266_1.lean` | reduction of L-meta-5266, the declared open core | CHECK_OK, no sorry, 3 permitted axioms | **SUBMITTED: [#10355](https://github.com/open-goat/pequalnp-proofs/pull/10355)** |
 
 One command per row, from anywhere `gh` is signed in as KSXGitHub:
 
