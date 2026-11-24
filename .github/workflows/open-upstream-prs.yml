@@ -66,8 +66,23 @@ jobs:
             [ -n "$b" ] || continue
             case "$b" in main|master|claude/*) continue ;; esac
 
-            files="$(gh api "repos/$UPSTREAM/compare/main...$me:$b" \
-                       --jq '.files[] | [.status,.filename] | @tsv' 2>/dev/null)" || files=""
+            cmp="$(gh api "repos/$UPSTREAM/compare/main...$me:$b" 2>/dev/null)" || cmp=""
+            if [ -z "$cmp" ]; then
+              echo "REFUSE $b : could not compare it against upstream"
+              refused=$((refused+1)); continue
+            fi
+            # A branch cut from a STALE base passes the three-dot file check (which is what
+            # .files is) while a tree-comparing checker sees every file the missing upstream
+            # commits touched. That is how a one-file reduction was refused as a 199-file pull
+            # request. behind_by is the real signal, so refuse anything not on current upstream.
+            behind="$(printf '%s' "$cmp" | jq -r '.behind_by // 0')"
+            if [ "${behind:-0}" -gt 0 ]; then
+              echo "REFUSE $b : $behind commit(s) behind upstream/main - rebase it onto current"
+              echo "           upstream before submitting, or a tree compare sees $behind commits"
+              echo "           worth of files in the pull request"
+              refused=$((refused+1)); continue
+            fi
+            files="$(printf '%s' "$cmp" | jq -r '.files[]? | [.status,.filename] | @tsv')"
             if [ -z "$files" ]; then
               echo "REFUSE $b : adds nothing against upstream (stale branch)"
               refused=$((refused+1)); continue
