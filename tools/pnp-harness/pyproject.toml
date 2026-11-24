@@ -14,6 +14,12 @@ include = ["lib/**/*.py", "tests/**/*.py", "*.py"]
 target-version = "py311"
 line-length = 120
 
+[tool.ruff.format]
+# per-file-ignores governs the linter, not the formatter, so the legacy four are
+# excluded here as well. Reformatting them would be churn in code nobody is
+# changing, and it would bury the one diff that matters in noise.
+exclude = ["lint.py", "show.py", "skeleton.py", "mkrefute.py"]
+
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 
@@ -29,7 +35,7 @@ select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 # filtering a log - lives in lib/ under strict types with tests, because that
 # is the code that broke twice. Converting these is worth doing when one of
 # them next needs a real change, not as a sweep.
-"lint.py" = ["E701", "E741", "T201", "UP031"]
-"show.py" = ["F401", "I001", "T201", "UP031"]
+"lint.py" = ["B007", "E401", "E501", "E701", "E702", "E741", "I001", "T201", "UP031"]
+"show.py" = ["E401", "E701", "F401", "I001", "T201", "UP031"]
 "skeleton.py" = ["E401", "E702", "I001", "T201", "UP031"]
-"mkrefute.py" = ["E702", "T201", "UP031"]
+"mkrefute.py" = ["E401", "E702", "I001", "T201", "UP031"]
