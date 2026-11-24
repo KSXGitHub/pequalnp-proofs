@@ -1,0 +1,103 @@
+# Watch our upstream pull requests and close the ones the checker rejected.
+#
+# WHY HERE. The proving agent cannot reach open-goat/pequalnp-proofs at all: its container
+# proxies api.github.com and github.com for that repo by allowlist, so it cannot even READ a
+# verdict comment. Actions can, with the same PNP_PR_TOKEN that opens the pull requests.
+#
+# WHAT A VERDICT LOOKS LIKE (https://pequalnp.com/join.txt): a comment is posted on each pull
+# request saying ACCEPTED, REJECTED or FAULT.
+#   ACCEPTED - merged upstream, nothing to do.
+#   REJECTED - the owner's instruction is to drop it, so close it.
+#   FAULT    - THEIR machine failed. It says nothing about the proof and the file is checked
+#              again, so FAULT must NEVER be closed.
+#
+# SAFETY. It only ever touches a pull request that is open, authored by the fork owner, and whose
+# head is in the fork. It reads the LAST verdict comment only, so a later FAULT or ACCEPTED
+# overrides an earlier REJECTED. It closes nothing when the verdict is absent or unclear. Set
+# repository variable PNP_DRY_RUN to true to see what it would close without closing anything.
+
+name: Close rejected upstream pull requests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '33 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: close-rejected-prs
+  cancel-in-progress: false
+
+jobs:
+  close:
+    if: github.repository == 'KSXGitHub/pequalnp-proofs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close pull requests whose latest verdict is REJECTED
+        env:
+          GH_TOKEN: ${{ secrets.PNP_PR_TOKEN }}
+          FORK: ${{ github.repository }}
+          UPSTREAM: open-goat/pequalnp-proofs
+          DRY: ${{ vars.PNP_DRY_RUN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::secret PNP_PR_TOKEN is not set"; exit 1
+          fi
+          me="${FORK%%/*}"
+          [ "${DRY:-}" = "true" ] && echo "::notice::PNP_DRY_RUN is true, nothing will be closed"
+
+          # Our open pull requests upstream, by head owner (not by author, so a pull request the
+          # owner opened by hand from one of our branches is covered too).
+          prs="$(gh pr list --repo "$UPSTREAM" --state open --limit 200 \
+                   --json number,headRefName,headRepositoryOwner,author \
+                   --jq ".[] | select(.headRepositoryOwner.login == \"$me\") | \
+                         [.number, .headRefName] | @tsv")" || prs=""
+          if [ -z "$prs" ]; then echo "no open pull requests of ours upstream"; exit 0; fi
+
+          closed=0; kept=0; unclear=0
+          while IFS=$'\t' read -r num branch; do
+            [ -n "${num:-}" ] || continue
+            # The LAST comment that names a verdict wins; keep its timestamp too.
+            cj="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate \
+                    --jq '.[] | [.created_at, (.body | gsub("\n"; " "))] | @tsv' 2>/dev/null)" || cj=""
+            verdict="$(printf '%s\n' "$cj" | grep -oE '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1)" || verdict=""
+            vtime="$(printf '%s\n' "$cj" | grep -E '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1 | cut -f1)" || vtime=""
+            # When was the branch last pushed? A fix that landed AFTER the rejection means the
+            # pull request is being repaired, not abandoned, and the checker re-runs on it - so
+            # it must not be closed. This is not hypothetical: a reduce-extra rejection was
+            # fixed in place rather than dropped.
+            ptime="$(gh api "repos/$UPSTREAM/pulls/$num/commits" --jq '.[-1].commit.committer.date' 2>/dev/null)" || ptime=""
+            case "${verdict:-}" in
+              REJECTED)
+                if [ -n "${ptime:-}" ] && [ -n "${vtime:-}" ] && [ "$ptime" \> "$vtime" ]; then
+                  echo "KEEP    #$num ($branch) : REJECTED at $vtime but a fix was pushed at $ptime"
+                  kept=$((kept+1)); continue
+                fi
+                if [ "${DRY:-}" = "true" ]; then
+                  echo "WOULD CLOSE #$num ($branch) : latest verdict REJECTED"
+                else
+                  if out="$(gh pr close "$num" --repo "$UPSTREAM" 2>&1)"; then
+                    echo "CLOSED  #$num ($branch) : REJECTED"
+                    closed=$((closed+1))
+                  else
+                    echo "FAILED  #$num ($branch) : $out"
+                  fi
+                fi
+                ;;
+              ACCEPTED) echo "KEEP    #$num ($branch) : ACCEPTED"; kept=$((kept+1)) ;;
+              FAULT)    echo "KEEP    #$num ($branch) : FAULT, their machine failed, it is re-checked"; kept=$((kept+1)) ;;
+              *)        echo "KEEP    #$num ($branch) : no verdict yet"; unclear=$((unclear+1)) ;;
+            esac
+          done <<< "$prs"
+
+          echo "closed $closed | kept $kept | no verdict $unclear"
+          {
+            echo "### Rejected pull requests closed"
+            echo "closed **$closed**, kept $kept, awaiting a verdict $unclear"
+            echo ""
+            echo "FAULT is never closed: it means the checker's own machine failed and the file is"
+            echo "checked again."
+          } >> "$GITHUB_STEP_SUMMARY"
