@@ -1,0 +1,23 @@
+# This directory ships no Python package. The file is here because mypy and
+# ruff read their configuration from it, and it lives beside the harness rather
+# than at the repository root so it cannot collide with upstream's own files.
+
+[tool.mypy]
+files = ["lib", "tests"]
+mypy_path = "."
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+
+[tool.ruff]
+include = ["lib/**/*.py", "tests/**/*.py", "*.py"]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
+
+[tool.ruff.lint.per-file-ignores]
+# A test narrows a type with `assert`. S101 rejects one because `python -O`
+# strips it, which the test run never does.
+"tests/**/*.py" = ["S101"]

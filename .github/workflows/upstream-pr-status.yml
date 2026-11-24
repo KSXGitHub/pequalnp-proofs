@@ -1,15 +1,15 @@
-# Report the state and checker verdict of every pull request of ours on the upstream repo.
+# Report the state and checker verdict of every pull request of ours upstream.
 #
-# READ ONLY. It opens nothing, closes nothing, comments nowhere. Its only job is to put upstream
-# state somewhere the agent can see, because the agent's container proxies api.github.com and
-# github.com for open-goat/pequalnp-proofs by allowlist and cannot read even a comment there.
-# The agent CAN read this fork's Actions logs, so this workflow is its window onto upstream.
+# READ ONLY: opens nothing, closes nothing, comments nowhere. It exists because the agent's
+# container refuses open-goat/pequalnp-proofs over the API, the HTML page and gh alike
+# ("sessions are bound to their configured repositories"), so it cannot read even a verdict
+# comment. It CAN read this fork's Actions logs, so this workflow is its window onto upstream.
 #
-# That gap caused real damage once: unable to read a rejection, the agent inferred the cause
-# twice from repository archaeology and was wrong both times. The actual reason - five
-# auto-generated lemmas tripping a reduce-extra rule - was one line in the log.
-#
-# Trigger it with workflow_dispatch; the agent fires it and reads the job log.
+# The parsing lives in tools/pnp-harness/lib/verdict.py with unit tests, not in shell here. Two
+# bugs are why: a keyword grep over an Actions log reported the checker's OWN SOURCE, because
+# Actions echoes each script line with an ANSI 36;1 prefix and those lines contain the words
+# being grepped for; and piping a long log into `head` killed the writer with SIGPIPE. Both are
+# now fixtures in tests/test_verdict.py.
 
 name: Upstream pull request status
 
@@ -26,94 +26,51 @@ jobs:
     if: github.repository == 'KSXGitHub/pequalnp-proofs'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - name: Report every upstream pull request of ours
         env:
           GH_TOKEN: ${{ secrets.PNP_PR_TOKEN }}
           FORK: ${{ github.repository }}
           UPSTREAM: open-goat/pequalnp-proofs
+        working-directory: tools/pnp-harness
         run: |
           set -uo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then echo "::error::secret PNP_PR_TOKEN is not set"; exit 1; fi
           me="${FORK%%/*}"
 
-          # Filter by AUTHOR, not by head repository: headRepositoryOwner comes back absent
-          # for cross-fork pull requests, so selecting on it silently matched nothing and the
-          # report claimed we had no pull requests at all while one was open.
+          # Filter by AUTHOR: gh does not populate headRepositoryOwner for cross-fork pull
+          # requests, so selecting on it silently matched nothing.
           prs="$(gh pr list --repo "$UPSTREAM" --author "$me" --state all --limit 300 \
-                   --json number,headRefName,state,url,updatedAt \
-                   --jq '.[] | [.number,.headRefName,.state,.url,.updatedAt] | @tsv')" || prs=""
+                   --json number,headRefName,state,url \
+                   --jq '.[] | [.number,.headRefName,.state,.url] | @tsv')" || prs=""
           if [ -z "$prs" ]; then echo "no pull requests of ours upstream"; exit 0; fi
 
-          acc=0; rej=0; flt=0; pend=0; merged=0
-          printf '%-8s %-22s %-8s %-10s %s\n' PR BRANCH STATE VERDICT WHEN
           {
             echo "### Upstream pull request status"
             echo ""
-            echo "| PR | branch | state | verdict | last verdict at |"
+            echo "| PR | branch | state | verdict | reason |"
             echo "|---|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
+          printf '%-8s %-22s %-8s %-10s %s\n' PR BRANCH STATE VERDICT REASON
 
-          while IFS=$'\t' read -r num branch state url updated; do
+          while IFS=$'\t' read -r num branch state url; do
             [ -n "${num:-}" ] || continue
-            cj="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate \
-                    --jq '.[] | [.created_at, (.body | gsub("\n"; " "))] | @tsv' 2>/dev/null)" || cj=""
-            line="$(printf '%s\n' "$cj" | grep -E '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1)"
-            verdict="$(printf '%s' "$line" | grep -oE '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1)"
-            vtime="$(printf '%s' "$line" | cut -f1)"
-            : "${verdict:=none}"; : "${vtime:=-}"
-            case "$state" in MERGED) merged=$((merged+1)) ;; esac
-            case "$verdict" in
-              ACCEPTED) acc=$((acc+1)) ;; REJECTED) rej=$((rej+1)) ;;
-              FAULT) flt=$((flt+1)) ;; *) pend=$((pend+1)) ;;
-            esac
-            printf '%-8s %-22s %-8s %-10s %s\n' "#$num" "$branch" "$state" "$verdict" "$vtime"
-            # On a rejection, dig out what actually failed. The verdict comment looks like:
-            #     Checked on the base repository at commit `5021e8b7a8`.
-            #     **REJECTED (reduce-extra)**
-            #     Run: https://github.com/open-goat/pequalnp-proofs/actions/runs/45502817502
-            # so it carries both a REASON CODE and a link to the run holding the real
-            # diagnostics. The agent cannot open either - its container refuses that repo with
-            # "sessions are bound to their configured repositories" - so fetch them here.
-            if [ "$verdict" = "REJECTED" ]; then
-              code="$(printf '%s' "$line" | grep -oE 'REJECTED \(([a-z0-9-]+)\)' | head -1 \
-                        | sed -E 's/REJECTED \((.*)\)/\1/')"
-              [ -n "${code:-}" ] && echo "         reason code: $code"
-              runurl="$(printf '%s' "$line" | grep -oE 'https://github\.com/[^ )]*/actions/runs/[0-9]+' | head -1)"
-              if [ -n "${runurl:-}" ]; then
-                echo "         run: $runurl"
-                rid="${runurl##*/}"
-                echo "         ---- checker diagnostics ----"
-                if log="$(gh run view "$rid" --repo "$UPSTREAM" --log 2>&1)"; then
-                  # Two traps here, both learned by getting them wrong:
-                  # (a) In an Actions log, the lines of the SCRIPT ITSELF are echoed with an
-                  #     ANSI 36;1 prefix. They contain the very words we grep for, because they
-                  #     are the code that prints them, so an unfiltered grep returns the
-                  #     checker's source instead of its output. Drop those lines first.
-                  # (b) Piping into `head` closes the pipe early and kills the writer with
-                  #     SIGPIPE, which littered the report with "Broken pipe". Limit with awk.
-                  printf '%s\n' "$log" \
-                    | grep -v $'\033\[36;1m' \
-                    | grep -E 'VERDICT:|REJECTED \(|ACCEPTED \(|FAULT|^[^|]*\| ' \
-                    | sed -E 's/^[^ ]*\t[^\t]*\t[0-9T:.Z-]*Z? ?//' \
-                    | awk 'NR<=25 { print "         | " $0 }'
-                else
-                  echo "         | could not read the run log: $(printf '%s' "$log" | head -2)"
-                  echo "         | open it by hand: $runurl"
-                fi
-                echo "         ----------------------------"
+            bodies="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate --jq '[.[].body]' 2>/dev/null)" || bodies='[]'
+            # The tested parser decides; this shell only moves text around.
+            eval "$(printf '%s' "$bodies" | python3 read_verdict.py)"
+            printf '%-8s %-22s %-8s %-10s %s\n' "#$num" "$branch" "$state" "${VERDICT:-none}" "${CODE:-}"
+            echo "| [#$num]($url) | \`$branch\` | $state | **${VERDICT:-none}** | ${CODE:-} |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${IS_REJECTION:-0}" = "1" ] && [ -n "${RUN_ID:-}" ]; then
+              echo "         run: https://github.com/$UPSTREAM/actions/runs/$RUN_ID"
+              echo "         ---- checker diagnostics ----"
+              if log="$(gh run view "$RUN_ID" --repo "$UPSTREAM" --log 2>&1)"; then
+                printf '%s' "$log" | python3 read_verdict.py --log --limit 25 | sed 's/^/         | /'
+              else
+                echo "         | could not read the run log; open it by hand"
               fi
-              { echo ""; echo "<details><summary>#$num rejected: ${code:-unknown}</summary>"; echo ""
-                echo '```'; echo "run: ${runurl:-none}"; echo '```'; echo "</details>"; } >> "$GITHUB_STEP_SUMMARY"
+              echo "         ----------------------------"
             fi
-            echo "| [#$num]($url) | \`$branch\` | $state | **$verdict** | $vtime |" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$prs"
-
-          echo
-          echo "accepted $acc | rejected $rej | fault $flt | no verdict $pend | merged $merged"
-          {
-            echo ""
-            echo "accepted **$acc**, rejected $rej, fault $flt, awaiting a verdict $pend, merged $merged"
-            echo ""
-            echo "FAULT means the checker's own machine failed; the file is checked again and the"
-            echo "verdict says nothing about the proof."
-          } >> "$GITHUB_STEP_SUMMARY"

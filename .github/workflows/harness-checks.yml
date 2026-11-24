@@ -1,0 +1,49 @@
+# Check the agent's own harness: unit tests, strict types, lint, format, shell.
+#
+# The parsing this covers broke twice in shell before it was moved into Python, so the tests are
+# the point of the directory, not an afterthought. Conventions follow
+# KSXGitHub/creusot-prebuilt.experiment: mypy strict, ruff with E,F,I,N,UP,B,S,RUF,EXE,T20, and
+# ruff format --check.
+
+name: Harness checks
+
+on:
+  push:
+    paths:
+      - 'tools/pnp-harness/**'
+      - '.github/workflows/harness-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install mypy and ruff
+        run: pip install -r tools/pnp-harness/requirements.txt
+      - name: Unit tests
+        working-directory: tools/pnp-harness
+        run: python3 -m unittest discover -s tests -t . -v
+      - name: Types
+        working-directory: tools/pnp-harness
+        run: python3 -m mypy
+      - name: Lint
+        working-directory: tools/pnp-harness
+        run: python3 -m ruff check
+      - name: Format
+        working-directory: tools/pnp-harness
+        run: python3 -m ruff format --check
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: Check the harness shell scripts
+        run: shellcheck -S warning tools/pnp-harness/*.sh
