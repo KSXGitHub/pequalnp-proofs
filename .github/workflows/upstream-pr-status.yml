@@ -36,10 +36,12 @@ jobs:
           if [ -z "${GH_TOKEN:-}" ]; then echo "::error::secret PNP_PR_TOKEN is not set"; exit 1; fi
           me="${FORK%%/*}"
 
-          prs="$(gh pr list --repo "$UPSTREAM" --state all --limit 300 \
-                   --json number,headRefName,headRepositoryOwner,state,isDraft,url,updatedAt \
-                   --jq ".[] | select(.headRepositoryOwner.login == \"$me\") | \
-                         [.number,.headRefName,.state,.url,.updatedAt] | @tsv")" || prs=""
+          # Filter by AUTHOR, not by head repository: headRepositoryOwner comes back absent
+          # for cross-fork pull requests, so selecting on it silently matched nothing and the
+          # report claimed we had no pull requests at all while one was open.
+          prs="$(gh pr list --repo "$UPSTREAM" --author "$me" --state all --limit 300 \
+                   --json number,headRefName,state,url,updatedAt \
+                   --jq '.[] | [.number,.headRefName,.state,.url,.updatedAt] | @tsv')" || prs=""
           if [ -z "$prs" ]; then echo "no pull requests of ours upstream"; exit 0; fi
 
           acc=0; rej=0; flt=0; pend=0; merged=0
@@ -65,10 +67,33 @@ jobs:
               FAULT) flt=$((flt+1)) ;; *) pend=$((pend+1)) ;;
             esac
             printf '%-8s %-22s %-8s %-10s %s\n' "#$num" "$branch" "$state" "$verdict" "$vtime"
-            # On a rejection, surface the reason itself - that is the actionable part.
+            # On a rejection, dig out what actually failed. The verdict comment looks like:
+            #     Checked on the base repository at commit `5021e8b7a8`.
+            #     **REJECTED (reduce-extra)**
+            #     Run: https://github.com/open-goat/pequalnp-proofs/actions/runs/45502817502
+            # so it carries both a REASON CODE and a link to the run holding the real
+            # diagnostics. The agent cannot open either - its container refuses that repo with
+            # "sessions are bound to their configured repositories" - so fetch them here.
             if [ "$verdict" = "REJECTED" ]; then
-              reason="$(printf '%s' "$line" | grep -oE 'REJECTED \([a-z-]+\)[^|]{0,200}' | head -1)"
-              [ -n "$reason" ] && echo "         reason: $reason"
+              code="$(printf '%s' "$line" | grep -oE 'REJECTED \(([a-z0-9-]+)\)' | head -1 \
+                        | sed -E 's/REJECTED \((.*)\)/\1/')"
+              [ -n "${code:-}" ] && echo "         reason code: $code"
+              runurl="$(printf '%s' "$line" | grep -oE 'https://github\.com/[^ )]*/actions/runs/[0-9]+' | head -1)"
+              if [ -n "${runurl:-}" ]; then
+                echo "         run: $runurl"
+                rid="${runurl##*/}"
+                echo "         ---- checker diagnostics ----"
+                if log="$(gh run view "$rid" --repo "$UPSTREAM" --log 2>&1)"; then
+                  printf '%s\n' "$log" | grep -iE 'REJECTED|ACCEPTED|FAULT|error|declares|statement|sorry|axiom|import|one file' \
+                    | sed 's/^/         | /' | head -25
+                else
+                  echo "         | could not read the run log: $(printf '%s' "$log" | head -2)"
+                  echo "         | open it by hand: $runurl"
+                fi
+                echo "         ----------------------------"
+              fi
+              { echo ""; echo "<details><summary>#$num rejected: ${code:-unknown}</summary>"; echo ""
+                echo '```'; echo "run: ${runurl:-none}"; echo '```'; echo "</details>"; } >> "$GITHUB_STEP_SUMMARY"
             fi
             echo "| [#$num]($url) | \`$branch\` | $state | **$verdict** | $vtime |" >> "$GITHUB_STEP_SUMMARY"
           done <<< "$prs"
