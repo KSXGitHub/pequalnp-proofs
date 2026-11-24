@@ -1,0 +1,9 @@
+# Local to this clone. Transient files of the pnp worker fleet.
+# In-progress step skeletons: a `sorry` plus the posted statement, regenerable at any time with
+# tools/pnp-harness/skeleton.py from the leased step's JSON. Nothing here is worth committing;
+# a PROVED file is force-added onto its own branch by submit.sh, which is the only path to a
+# pull request.
+lean/PEqualNP/Outside/L_*.lean
+lean/PEqualNP/Outside/R_*.lean
+# Scratch files of the tactic battery and the refutation checker.
+lean/PEqualNP/Outside/zz_*.lean

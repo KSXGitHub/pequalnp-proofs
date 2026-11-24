@@ -89,6 +89,38 @@ So before anything else, spend your first attempts finding out which of these yo
 
 Always `intro` the binders and print the goal before you decide anything about difficulty.
 
+## IS THE STEP FALSE? Check this early - it has already paid off once
+
+These steps are hypotheses of machine-made cuts, and a cut can produce a statement that is
+simply FALSE. We have already refuted one this way (L-meta-3628) in four check runs. A
+counterexample is worth as much as a proof here, so look for it deliberately.
+
+The pattern that broke L-meta-3628, worth testing on any step shaped like it: the conclusion
+quantified over EVERY smaller object (every fan-in-two circuit under a gate budget) and asserted
+each one computes a given function. A universally quantified conclusion like that is refuted by
+the DEGENERATE member of the family - the empty circuit, the zero function, the empty list -
+whenever the hypotheses do not rule it out. The empty circuit has gate count zero, so it meets
+any budget of one or more, yet it is constant, while the step's own hypothesis said the target
+function is non-constant. That is the whole refutation.
+
+So, concretely: if the goal after `intro` is `∀ (smaller thing), <budget> → <it computes f>`,
+instantiate it at the degenerate thing and see whether the hypotheses let you. Likewise if the
+conclusion is an equality of functions, apply `congrFun` at a well-chosen point and look for a
+mismatch.
+
+To test a refutation, write a SCRATCH file (never your step's file) proving the negation:
+
+    P=/tmp/claude-0/-home-user-pequalnp-proofs/731ccd8c-0494-56c8-b77c-6e2443ae238b/scratchpad/pnp
+    printf '  intro h\n  have key := h <args...>\n  ...\n' > /tmp/myproof.txt
+    $P/mkrefute.py <STEP> /tmp/myproof.txt      # writes a scratch file: ¬ (the posted statement)
+    $P/check.sh <the path it prints>
+
+`mkrefute.py` inserts the posted statement verbatim, so a `CHECK_OK` there is a real refutation
+of the real statement - not of your paraphrase of it. Do NOT hand-retype the statement into a
+restatement of your own and claim a refutation from that; it proves nothing about the posted step.
+If it checks, report `statement_seems_false` and give the witness in your NOTE. Leave the scratch
+file in place and name its path so the orchestrator can keep it.
+
 Stay on it for at least 20 minutes of genuine attempts before you give it back. Do not give up
 after one failed tactic. Equally: do not grind past roughly 30-35 failed check runs. At that
 point report honestly; an honest "I could not" is useful work here, and a wrong claim is the

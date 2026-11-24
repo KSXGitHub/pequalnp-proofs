@@ -16,3 +16,14 @@ proof pull request, because those are cut from `main` and must add exactly one f
 | `PLAYBOOK.md` | the brief each worker sub-agent reads |
 
 Mathlib is pinned and prebuilt. Never run `lake update`, and never build Mathlib from source.
+
+## Keeping the working tree clean
+
+In-progress step skeletons and the scratch files of `autotry.sh` / `mkrefute.py` are excluded
+per clone, not by a tracked `.gitignore`: `main` has to stay a byte-for-byte mirror of upstream
+so `git merge --ff-only upstream/main` keeps working, and a tracked ignore file could follow a
+proof onto its pull-request branch. Copy `git-info-exclude.sample` to `.git/info/exclude`.
+
+Because the proof file is excluded, `submit.sh` force-adds it (`git add -f`) onto the step's own
+branch. Skeletons are never worth keeping: `skeleton.py` regenerates one from the leased step's
+JSON whenever it is needed.

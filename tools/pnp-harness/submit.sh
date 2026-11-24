@@ -22,7 +22,7 @@ echo "== 4. one branch, one commit, one file =="
 git checkout -q main 2>/dev/null || true
 git branch -D "$gid" -q 2>/dev/null || true
 git checkout -q -b "$gid"
-git add -- "$file"
+git add -f -- "$file"
 staged="$(git diff --cached --name-only)"
 [ "$staged" = "$file" ] || { echo "ABORT: staged files are not exactly one file: $staged"; git reset -q; git checkout -q main; exit 1; }
 git commit -q -F - <<MSG
