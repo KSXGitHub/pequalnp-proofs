@@ -107,6 +107,29 @@ jobs:
                  refused=$((refused+1)); continue ;;
             esac
 
+            # DOES THE FILE ALREADY EXIST UPSTREAM? This is the real test for "this branch adds
+            # nothing", and the guard whose absence opened six junk pull requests on a third
+            # party's repository. Six stale branches here each carried an old commit that the
+            # compare API still reads as one ADDED file, because that comparison runs from the
+            # MERGE BASE: measured against current upstream, those files had been merged long
+            # ago. A local three-dot diff showed zero files while the API showed one, and only
+            # the API's answer was being checked.
+            # Asking whether the path already exists upstream answers the question directly,
+            # without trusting a branch name, a merge base, or how far the branch has drifted.
+            # It also guards the race that matters day to day: if a sibling's proof of the same
+            # step is merged while ours is being written, ours adds nothing and must not be sent.
+            # Fail CLOSED: tell a 404 (genuinely absent) from any other failure, and refuse on
+            # anything we cannot read, because an unreadable answer is not a "no".
+            http="$(gh api "repos/$UPSTREAM/contents/$name?ref=main" \
+                      -i --cache 0 2>/dev/null | head -1 || true)"
+            case "$http" in
+              *" 404"*) ;;
+              *" 200"*) echo "REFUSE $b : $name already exists upstream, so this adds nothing"
+                        refused=$((refused+1)); continue ;;
+              *)        echo "REFUSE $b : could not tell whether $name exists upstream (${http:-no response})"
+                        refused=$((refused+1)); continue ;;
+            esac
+
             # Scope the duplicate test to OUR pull requests. `--head` matches on branch NAME
             # alone, and every contributor names branches after the step id, so a sibling's
             # pull request from their own fork collides with ours. That is not theoretical: a
