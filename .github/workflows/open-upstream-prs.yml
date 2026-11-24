@@ -90,9 +90,16 @@ jobs:
                  refused=$((refused+1)); continue ;;
             esac
 
-            existing="$(gh pr list --repo "$UPSTREAM" --head "$b" --state all \
-                          --json number --jq '.[].number' 2>/dev/null | tr '\n' ' ')"
-            if [ -n "$existing" ]; then
+            # Fail CLOSED: if this query errors we must not guess "no pull request exists",
+            # or a transient failure would open a duplicate.
+            if ! existing="$(gh pr list --repo "$UPSTREAM" --head "$b" --state all \
+                               --json number --jq '.[].number' 2>&1)"; then
+              echo "REFUSE $b : could not check for an existing pull request, so not opening one"
+              echo "           ($existing)"
+              refused=$((refused+1)); continue
+            fi
+            existing="$(printf '%s' "$existing" | tr '\n' ' ' | tr -s ' ')"
+            if [ -n "${existing// /}" ]; then
               echo "SKIP   $b : already has pull request(s) $existing"
               skipped=$((skipped+1)); continue
             fi
