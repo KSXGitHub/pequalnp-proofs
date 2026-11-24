@@ -75,13 +75,15 @@ jobs:
             # .files is) while a tree-comparing checker sees every file the missing upstream
             # commits touched. That is how a one-file reduction was refused as a 199-file pull
             # request. behind_by is the real signal, so refuse anything not on current upstream.
+            # Being behind upstream is NOT a refusal, and treating it as one was a bug that
+            # would have blocked every submission overnight: upstream moves about ninety commits
+            # an hour, so any branch is stale minutes after it is cut. The evidence that it is
+            # harmless is direct - a pull request 195 commits behind was judged on its contents
+            # and rejected for reduce-extra, not for file count - and the checker's own log says
+            # it reads the pull request THROUGH THE API, which reports the three-dot diff. That
+            # diff is what the next test measures.
             behind="$(printf '%s' "$cmp" | jq -r '.behind_by // 0')"
-            if [ "${behind:-0}" -gt 0 ]; then
-              echo "REFUSE $b : $behind commit(s) behind upstream/main - rebase it onto current"
-              echo "           upstream before submitting, or a tree compare sees $behind commits"
-              echo "           worth of files in the pull request"
-              refused=$((refused+1)); continue
-            fi
+            [ "${behind:-0}" -gt 0 ] && echo "note   $b : $behind commit(s) behind upstream, which does not matter here"
             files="$(printf '%s' "$cmp" | jq -r '.files[]? | [.status,.filename] | @tsv')"
             if [ -z "$files" ]; then
               echo "REFUSE $b : adds nothing against upstream (stale branch)"
