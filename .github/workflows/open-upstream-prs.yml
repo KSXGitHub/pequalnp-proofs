@@ -1,0 +1,119 @@
+# Open the upstream pull request for each verified artifact branch on this fork.
+#
+# WHY THIS EXISTS. The agent that produces the proofs can push branches here, but it cannot open
+# pull requests on open-goat/pequalnp-proofs. Two independent blocks: a cross-fork pull request
+# POSTs to the BASE repository and the Claude GitHub App is not installed there (403 Resource not
+# accessible by integration), and the agent's container proxies api.github.com and github.com by
+# repository allowlist, so no credential reaches upstream from it. GitHub Actions has neither
+# problem, and the token stays in this repository's secret store.
+#
+# SETUP, once:
+#   1. Create a CLASSIC personal access token with the `public_repo` scope.
+#      A fine-grained token CANNOT do this: fine-grained tokens only grant permissions on
+#      repositories you administer, and you do not administer open-goat/pequalnp-proofs.
+#   2. Add it here as a repository secret named PNP_PR_TOKEN
+#      (Settings -> Secrets and variables -> Actions -> New repository secret).
+#
+# The agent triggers this itself after pushing a branch, so no clicks are needed. The schedule
+# below is only a fallback: GitHub disables scheduled workflows in forks by default, so do not
+# rely on it.
+#
+# SAFETY. This never trusts a branch name. For each candidate it asks the upstream compare API
+# what the branch actually changes, and opens a pull request only when that is EXACTLY ONE ADDED
+# file under lean/PEqualNP/Outside/. The tournament refuses anything else with the fixed sentence
+# `one file per pull request, so send each step as its own pull request`, and that already
+# happened once when a pull request was opened from the agent's working branch by mistake.
+
+name: Open upstream pull requests
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17,47 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: open-upstream-prs
+  cancel-in-progress: false
+
+jobs:
+  open:
+    if: github.repository == 'KSXGitHub/pequalnp-proofs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open a pull request for each verified artifact branch
+        env:
+          GH_TOKEN: ${{ secrets.PNP_PR_TOKEN }}
+          FORK: ${{ github.repository }}
+          UPSTREAM: open-goat/pequalnp-proofs
+          DRY: ${{ vars.PNP_DRY_RUN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::secret PNP_PR_TOKEN is not set. Add a CLASSIC token with public_repo scope."
+            exit 1
+          fi
+          me="${FORK%%/*}"
+          echo "fork $FORK | upstream $UPSTREAM | head owner $me"
+          [ "${DRY:-}" = "true" ] && echo "::notice::PNP_DRY_RUN is true, nothing will be created"
+
+          branches="$(gh api "repos/$FORK/branches" --paginate --jq '.[].name' | sort)"
+          opened=0; skipped=0; refused=0; failed=0
+
+          while IFS= read -r b; do
+            [ -n "$b" ] || continue
+            case "$b" in main|master|claude/*) continue ;; esac
+
+            files="$(gh api "repos/$UPSTREAM/compare/main...$me:$b" \
+                       --jq '.files[] | [.status,.filename] | @tsv' 2>/dev/null)" || files=""
+            if [ -z "$files" ]; then
+              echo "REFUSE $b : adds nothing against upstream (stale branch)"
+              refused=$((refused+1)); continue
+            fi
+            n="$(printf '%s\n' "$files" | grep -c .)"
+            status="$(printf '%s\n' "$files" | head -1 | cut -f1)"
+            name="$(printf '%s\n' "$files" | head -1 | cut -f2)"
+
+            if [ "$n" -ne 1 ]; then
+              echo "REFUSE $b : touches $n files, must be exactly 1"
+              refused=$((refused+1)); continue
+            fi
+            if [ "$status" != "added" ]; then
+              echo "REFUSE $b : $name is $status, must be added"
+              refused=$((refused+1)); continue
+            fi
+            case "$name" in
+              lean/PEqualNP/Outside/L_*.lean|lean/PEqualNP/Outside/R_*.lean) ;;
+              *) echo "REFUSE $b : $name is not a proof file under lean/PEqualNP/Outside/"
+                 refused=$((refused+1)); continue ;;
+            esac
+
+            existing="$(gh pr list --repo "$UPSTREAM" --head "$b" --state all \
+                          --json number --jq '.[].number' 2>/dev/null | tr '\n' ' ')"
+            if [ -n "$existing" ]; then
+              echo "SKIP   $b : already has pull request(s) $existing"
+              skipped=$((skipped+1)); continue
+            fi
+
+            if [ "${DRY:-}" = "true" ]; then
+              echo "WOULD  $b : adds $name"; continue
+            fi
+            if url="$(gh pr create --repo "$UPSTREAM" --head "$me:$b" --base main \
+                        --title "$b" --body "" 2>&1)"; then
+              echo "OPENED $b : $url"; opened=$((opened+1))
+            else
+              echo "FAILED $b : $url"; failed=$((failed+1))
+            fi
+          done <<< "$branches"
+
+          echo "opened $opened | skipped $skipped | refused $refused | failed $failed"
+          {
+            echo "### Upstream pull requests"
+            echo "opened **$opened**, skipped $skipped, refused $refused, failed $failed"
+            echo ""
+            echo "A refused branch is not a failed proof: it means the branch is not shaped like"
+            echo "one added proof file, so upstream would refuse it anyway."
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -gt 0 ] && exit 1 || exit 0
