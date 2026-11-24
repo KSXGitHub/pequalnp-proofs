@@ -84,8 +84,18 @@ jobs:
                 rid="${runurl##*/}"
                 echo "         ---- checker diagnostics ----"
                 if log="$(gh run view "$rid" --repo "$UPSTREAM" --log 2>&1)"; then
-                  printf '%s\n' "$log" | grep -iE 'REJECTED|ACCEPTED|FAULT|error|declares|statement|sorry|axiom|import|one file' \
-                    | sed 's/^/         | /' | head -25
+                  # Two traps here, both learned by getting them wrong:
+                  # (a) In an Actions log, the lines of the SCRIPT ITSELF are echoed with an
+                  #     ANSI 36;1 prefix. They contain the very words we grep for, because they
+                  #     are the code that prints them, so an unfiltered grep returns the
+                  #     checker's source instead of its output. Drop those lines first.
+                  # (b) Piping into `head` closes the pipe early and kills the writer with
+                  #     SIGPIPE, which littered the report with "Broken pipe". Limit with awk.
+                  printf '%s\n' "$log" \
+                    | grep -v $'\033\[36;1m' \
+                    | grep -E 'VERDICT:|REJECTED \(|ACCEPTED \(|FAULT|^[^|]*\| ' \
+                    | sed -E 's/^[^ ]*\t[^\t]*\t[0-9T:.Z-]*Z? ?//' \
+                    | awk 'NR<=25 { print "         | " $0 }'
                 else
                   echo "         | could not read the run log: $(printf '%s' "$log" | head -2)"
                   echo "         | open it by hand: $runurl"
