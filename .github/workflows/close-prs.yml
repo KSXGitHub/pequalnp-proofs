@@ -1,0 +1,66 @@
+# Close specific upstream pull requests of ours, by number.
+#
+# A manual remedy, not part of the loop. It exists because the agent cannot reach
+# open-goat/pequalnp-proofs at all and so cannot clean up after a mistake there.
+#
+# It was written for one: removing the name-collision skip from open-upstream-prs.yml exposed
+# six stale branches on this fork whose old commits still read as "one added file" to the
+# compare API, and the workflow opened a pull request for each. They were junk - the files had
+# long since been merged upstream - and junk pull requests on a third party's repository cost
+# the owner credibility.
+#
+# Safety: it closes only a pull request authored by this fork's owner, and only numbers passed
+# explicitly. It never closes anything by pattern.
+
+name: Close specific upstream pull requests
+
+on:
+  workflow_dispatch:
+    inputs:
+      numbers:
+        description: 'Space-separated pull request numbers to close'
+        required: true
+        type: string
+      reason:
+        description: 'One line for the closing comment, or empty for none'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  close:
+    if: github.repository == 'KSXGitHub/pequalnp-proofs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close the listed pull requests
+        env:
+          GH_TOKEN: ${{ secrets.PNP_PR_TOKEN }}
+          FORK: ${{ github.repository }}
+          UPSTREAM: open-goat/pequalnp-proofs
+          NUMBERS: ${{ inputs.numbers }}
+          REASON: ${{ inputs.reason }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then echo "::error::secret PNP_PR_TOKEN is not set"; exit 1; fi
+          me="${FORK%%/*}"
+          closed=0; refused=0; failed=0
+          for n in $NUMBERS; do
+            case "$n" in ''|*[!0-9]*) echo "REFUSE $n : not a number"; refused=$((refused+1)); continue ;; esac
+            author="$(gh pr view "$n" --repo "$UPSTREAM" --json author --jq '.author.login' 2>/dev/null)" || author=""
+            if [ "$author" != "$me" ]; then
+              echo "REFUSE #$n : authored by '${author:-unknown}', not $me"
+              refused=$((refused+1)); continue
+            fi
+            if [ -n "${REASON:-}" ]; then
+              gh pr comment "$n" --repo "$UPSTREAM" --body "$REASON" >/dev/null 2>&1 || true
+            fi
+            if out="$(gh pr close "$n" --repo "$UPSTREAM" 2>&1)"; then
+              echo "CLOSED #$n"; closed=$((closed+1))
+            else
+              echo "FAILED #$n : $out"; failed=$((failed+1))
+            fi
+          done
+          echo "closed $closed | refused $refused | failed $failed"
+          [ "$failed" -gt 0 ] && exit 1 || exit 0
