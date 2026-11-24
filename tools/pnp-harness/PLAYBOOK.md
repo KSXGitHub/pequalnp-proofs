@@ -147,3 +147,59 @@ Use `missing_lemma` when the step is too big and needs smaller steps posted firs
 
 Never edit any file but your own. Never touch git. Never change the statement. If `lint.py`
 complains, fix your file, not the statement.
+
+## THREE THINGS LEARNED THE HARD WAY - read these before you start
+
+### 1. Check whether the PARENT is already proved. This closed a step in three runs.
+
+If `show.py` describes your step as "one case of a split of L-meta-NNNN" or "step k of n of a
+checked cut of L-meta-NNNN", then GREP FOR THAT PARENT FIRST:
+
+    grep -l "theorem PEqualNP.Outside.L_meta_NNNN" /home/user/pequalnp-proofs/lean/PEqualNP/Outside/*.lean
+
+L-meta-3935 turned out to be exactly its parent L-meta-3095's statement plus one extra, UNUSED
+hypothesis - and the parent was already proved in the repository, 3215 lines, no sorry. The
+whole gate-elimination argument the brief described was unnecessary. Because the import list is
+restricted, you cannot `import` the parent module; instead copy the parent's file, rename its
+namespace to your module, and discharge your goal through its internal final lemma, `intro`-ing
+the extra hypotheses and ignoring them.
+
+A split's siblings are all corollaries once the parent is proved. This costs one grep. Do it.
+
+### 2. "No other declarations" is about the ENVIRONMENT, not the source text.
+
+A reduction file containing exactly one `theorem` was REJECTED upstream:
+
+    REJECTED (reduce-extra): ... declares more than its theorem:
+    [PEqualNP.TopForm.centreless.congr_simp, ... , PEqualNP.CircuitLowerBounds.Circuit.size.eq_1]
+    A reduction file holds the one theorem and nothing else
+
+Those five were AUTO-GENERATED and appear nowhere in the source:
+  - `X.eq_1` is an EQUATION lemma, emitted when a tactic unfolds a definition by equation:
+    `simp [SomeDef]`, `rw [SomeDef]`, `unfold SomeDef`, `dsimp [SomeDef]`.
+  - `X.congr_simp` is a CONGRUENCE lemma, emitted when simp is asked to rewrite with a
+    definition.
+They land in the namespace of the DEFINITION, not yours, so they also break the rule that only
+the one theorem stands outside the module's namespace block in a direct proof.
+
+HOW TO AVOID THEM. Never pass a project DEFINITION to simp / simp only / rw / unfold / dsimp.
+Passing ordinary Mathlib LEMMAS to simp is fine - it is unfolding definitions that generates
+these. Instead:
+  - state a definitional equality with an explicit type and close it by `rfl`, which generates
+    nothing:   `have hsz : C.size = C.gates.length := rfl`   then rewrite with `hsz`;
+  - use `show` / `change` to re-express a goal definitionally;
+  - reach for named Mathlib lemmas (`Finset.card_filter_le`, `Finset.card_le_card`,
+    `Finset.card_range`) and prove a subset with an explicit `fun x hx => ...` term.
+
+### 3. Verify with `decls.sh`, not by reading your own file.
+
+    $P/decls.sh lean/PEqualNP/Outside/<your file>.lean
+
+It asks Lean what the file actually adds to the environment. For an `R_` reduction, SUCCESS is
+exactly ONE name. For an `L_` proof, every added name should sit inside
+`PEqualNP.Outside.<module>`; anything in another namespace is a risk.
+
+RUN ALL THREE GATES before claiming anything: `lint.py` (format and exact statement),
+`check.sh` (Lean accepts it, no sorry), `decls.sh` (nothing extra in the environment). `LINT OK`
+alone means only that our own rules passed - it is not the upstream checker, and it missed the
+rejection above.
