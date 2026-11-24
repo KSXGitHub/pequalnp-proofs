@@ -27,3 +27,23 @@ proof onto its pull-request branch. Copy `git-info-exclude.sample` to `.git/info
 Because the proof file is excluded, `submit.sh` force-adds it (`git add -f`) onto the step's own
 branch. Skeletons are never worth keeping: `skeleton.py` regenerates one from the leased step's
 JSON whenever it is needed.
+
+## Never open a pull request from this branch
+
+This working branch carries the harness and the findings - two dozen files. The tournament
+refuses any pull request that is not exactly one added file, with the fixed sentence
+`one file per pull request, so send each step as its own pull request`. That happened once: a
+pull request was opened from here instead of from the artifact branch and was refused on file
+count, before the Lean was ever read.
+
+GitHub lets you change a pull request's base branch but NOT its head, so such a pull request
+cannot be repaired. Close it and open a new one from the artifact branch.
+
+Each artifact lives on its own branch named after its step (`L-<prog>-<n>` for a direct proof,
+`R-<prog>-<n>-<k>` for a reduction) holding exactly one added file. `open-prs.sh` verifies that
+against the real upstream base before opening anything and refuses a branch whose diff is not a
+single added file under `lean/PEqualNP/Outside/`. It no longer trusts branch names: the fork also
+carries stale branches identical to upstream with nothing to send.
+
+When pushing an artifact branch, push it LAST - GitHub's "Compare & pull request" banner
+suggests the most recently pushed branch, which is how the wrong branch got sent.
