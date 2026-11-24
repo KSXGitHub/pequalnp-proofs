@@ -107,10 +107,17 @@ jobs:
                  refused=$((refused+1)); continue ;;
             esac
 
-            # Fail CLOSED: if this query errors we must not guess "no pull request exists",
-            # or a transient failure would open a duplicate.
-            if ! existing="$(gh pr list --repo "$UPSTREAM" --head "$b" --state all \
-                               --json number --jq '.[].number' 2>&1)"; then
+            # Scope the duplicate test to OUR pull requests. `--head` matches on branch NAME
+            # alone, and every contributor names branches after the step id, so a sibling's
+            # pull request from their own fork collides with ours. That is not theoretical: a
+            # verified proof of L-meta-3935 was skipped because another fork's PR #9221 used the
+            # same branch name, and the run reported "opened 0" as though all was well. A
+            # false skip silently drops a submission, so it is worse than a duplicate, which the
+            # upstream checker would at least reject visibly.
+            # Fail CLOSED on a query error even so: a transient failure must not open a duplicate.
+            if ! existing="$(gh pr list --repo "$UPSTREAM" --author "$me" --state all --limit 300 \
+                               --json number,headRefName \
+                               --jq ".[] | select(.headRefName == \"$b\") | .number" 2>&1)"; then
               echo "REFUSE $b : could not check for an existing pull request, so not opening one"
               echo "           ($existing)"
               refused=$((refused+1)); continue
