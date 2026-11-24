@@ -60,11 +60,22 @@ jobs:
           closed=0; kept=0; unclear=0
           while IFS=$'\t' read -r num branch; do
             [ -n "${num:-}" ] || continue
-            # The LAST line across all comments that names a verdict wins.
-            verdict="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate --jq '.[].body' 2>/dev/null \
-                        | grep -oE '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1)" || verdict=""
+            # The LAST comment that names a verdict wins; keep its timestamp too.
+            cj="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate \
+                    --jq '.[] | [.created_at, (.body | gsub("\n"; " "))] | @tsv' 2>/dev/null)" || cj=""
+            verdict="$(printf '%s\n' "$cj" | grep -oE '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1)" || verdict=""
+            vtime="$(printf '%s\n' "$cj" | grep -E '\b(ACCEPTED|REJECTED|FAULT)\b' | tail -1 | cut -f1)" || vtime=""
+            # When was the branch last pushed? A fix that landed AFTER the rejection means the
+            # pull request is being repaired, not abandoned, and the checker re-runs on it - so
+            # it must not be closed. This is not hypothetical: a reduce-extra rejection was
+            # fixed in place rather than dropped.
+            ptime="$(gh api "repos/$UPSTREAM/pulls/$num/commits" --jq '.[-1].commit.committer.date' 2>/dev/null)" || ptime=""
             case "${verdict:-}" in
               REJECTED)
+                if [ -n "${ptime:-}" ] && [ -n "${vtime:-}" ] && [ "$ptime" \> "$vtime" ]; then
+                  echo "KEEP    #$num ($branch) : REJECTED at $vtime but a fix was pushed at $ptime"
+                  kept=$((kept+1)); continue
+                fi
                 if [ "${DRY:-}" = "true" ]; then
                   echo "WOULD CLOSE #$num ($branch) : latest verdict REJECTED"
                 else
