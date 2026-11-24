@@ -21,3 +21,15 @@ select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 # A test narrows a type with `assert`. S101 rejects one because `python -O`
 # strips it, which the test run never does.
 "tests/**/*.py" = ["S101"]
+# KNOWN DEBT, declared rather than hidden. These four are internal utilities
+# written before this directory adopted a standard: they print for a person,
+# use percent formatting, and put short statements on one line. They are not
+# type-annotated either, which is why mypy's `files` covers lib and tests only.
+# The parsing that this directory exists to get right - reading a verdict and
+# filtering a log - lives in lib/ under strict types with tests, because that
+# is the code that broke twice. Converting these is worth doing when one of
+# them next needs a real change, not as a sweep.
+"lint.py" = ["E701", "E741", "T201", "UP031"]
+"show.py" = ["F401", "I001", "T201", "UP031"]
+"skeleton.py" = ["E401", "E702", "I001", "T201", "UP031"]
+"mkrefute.py" = ["E702", "T201", "UP031"]
