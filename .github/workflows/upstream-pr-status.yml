@@ -36,10 +36,12 @@ jobs:
           if [ -z "${GH_TOKEN:-}" ]; then echo "::error::secret PNP_PR_TOKEN is not set"; exit 1; fi
           me="${FORK%%/*}"
 
-          prs="$(gh pr list --repo "$UPSTREAM" --state all --limit 300 \
-                   --json number,headRefName,headRepositoryOwner,state,isDraft,url,updatedAt \
-                   --jq ".[] | select(.headRepositoryOwner.login == \"$me\") | \
-                         [.number,.headRefName,.state,.url,.updatedAt] | @tsv")" || prs=""
+          # Filter by AUTHOR, not by head repository: headRepositoryOwner comes back absent
+          # for cross-fork pull requests, so selecting on it silently matched nothing and the
+          # report claimed we had no pull requests at all while one was open.
+          prs="$(gh pr list --repo "$UPSTREAM" --author "$me" --state all --limit 300 \
+                   --json number,headRefName,state,url,updatedAt \
+                   --jq '.[] | [.number,.headRefName,.state,.url,.updatedAt] | @tsv')" || prs=""
           if [ -z "$prs" ]; then echo "no pull requests of ours upstream"; exit 0; fi
 
           acc=0; rej=0; flt=0; pend=0; merged=0

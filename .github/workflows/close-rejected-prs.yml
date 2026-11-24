@@ -51,10 +51,11 @@ jobs:
 
           # Our open pull requests upstream, by head owner (not by author, so a pull request the
           # owner opened by hand from one of our branches is covered too).
-          prs="$(gh pr list --repo "$UPSTREAM" --state open --limit 200 \
-                   --json number,headRefName,headRepositoryOwner,author \
-                   --jq ".[] | select(.headRepositoryOwner.login == \"$me\") | \
-                         [.number, .headRefName] | @tsv")" || prs=""
+          # Filter by AUTHOR: headRepositoryOwner is absent on cross-fork pull requests, so
+          # selecting on it matched nothing - which would have made this workflow a silent no-op.
+          prs="$(gh pr list --repo "$UPSTREAM" --author "$me" --state open --limit 200 \
+                   --json number,headRefName \
+                   --jq '.[] | [.number, .headRefName] | @tsv')" || prs=""
           if [ -z "$prs" ]; then echo "no open pull requests of ours upstream"; exit 0; fi
 
           closed=0; kept=0; unclear=0
