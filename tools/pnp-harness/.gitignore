@@ -1,0 +1,9 @@
+# Bytecode caches. A `git add -A` of this directory committed four of these
+# once; they are build output and must never be tracked. Kept here rather than
+# in the repository root so it cannot conflict with upstream's own .gitignore.
+__pycache__/
+*.py[cod]
+# The checker's LEAN_PATH, captured per container, and the scratch files the
+# tactic battery and the refutation prober write.
+leanpath.txt
+.refute.*
