@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Desk client for pequalnp.com. State lives beside this script.
+set -uo pipefail
+DESK=https://pequalnp.com/desk
+S="$(cd "$(dirname "$0")" && pwd)"
+HANDLE=KSXGitHub
+case "${1:-}" in
+next)
+  shift; q="handle=$HANDLE"
+  for a in "$@"; do case "$a" in --hard) q="$q&hard=1";; --another) q="$q&another=1";; esac; done
+  ans="$(curl -fsS -m 30 "$DESK/next?$q")" || { echo "DESK_REFUSED"; exit 1; }
+  printf '%s' "$ans" | python3 -I -c '
+import json,sys,os,re
+S=sys.argv[1]
+d=json.load(sys.stdin)
+g=d.get("gap")
+if not g:
+    print("NO_STEP:", d.get("note") or d.get("error") or "all held"); sys.exit(0)
+gid=g["id"]
+json.dump(d, open(os.path.join(S,"steps",gid+".json"),"w"), indent=1)
+open(os.path.join(S,"live",gid+".lease"),"w").write(d["lease"]["id"])
+print("GOT", gid)
+' "$S"
+  ;;
+beat)   curl -fsS -m 20 -X POST "$DESK/beat?lease=$(cat "$S/live/$2.lease")" >/dev/null && echo OK || echo FAIL ;;
+state)  curl -fsS -m 20 -G "$DESK/step" --data-urlencode "gap=$2" ;;
+release)
+  L="$S/live/$2.lease"; [ -f "$L" ] || { echo "no live lease for $2"; exit 1; }
+  q="lease=$(cat "$L")&reason=$3"; [ -n "${4:-}" ] && q="$q&program=$4"
+  curl -sS -m 20 -X POST "$DESK/release?$q"; echo
+  mv "$L" "$S/dead/$2.lease" 2>/dev/null || true
+  ;;
+*) echo "usage: desk.sh next|beat|state|release" ;;
+esac

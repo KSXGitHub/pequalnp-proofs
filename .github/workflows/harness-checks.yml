@@ -46,4 +46,12 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
       - name: Check the harness shell scripts
-        run: shellcheck -S warning tools/pnp-harness/*.sh
+        # A glob that matches nothing makes shellcheck exit 2, which failed this job on its
+        # first run when the scripts were not yet on this branch. Enumerate with find instead.
+        run: |
+          set -uo pipefail
+          files="$(find tools/pnp-harness -maxdepth 1 -name '*.sh' -print | sort)"
+          if [ -z "$files" ]; then echo "::notice::no shell scripts to check"; exit 0; fi
+          echo "$files"
+          # shellcheck disable=SC2086
+          shellcheck -S warning $files
