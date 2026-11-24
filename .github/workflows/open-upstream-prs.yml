@@ -28,6 +28,11 @@ name: Open upstream pull requests
 
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report what would be opened, and create nothing'
+        type: boolean
+        default: false
   schedule:
     - cron: '17,47 * * * *'
 
@@ -48,7 +53,10 @@ jobs:
           GH_TOKEN: ${{ secrets.PNP_PR_TOKEN }}
           FORK: ${{ github.repository }}
           UPSTREAM: open-goat/pequalnp-proofs
-          DRY: ${{ vars.PNP_DRY_RUN }}
+          # Either source makes a run dry. The input is per-run, so it cannot be left
+          # switched on; the variable persists, which is why it is only ever read, never set
+          # from here - a forgotten `true` would silently stop every submission.
+          DRY: ${{ (inputs.dry_run || vars.PNP_DRY_RUN == 'true') && 'true' || '' }}
         run: |
           set -uo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
