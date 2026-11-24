@@ -53,3 +53,30 @@ Worth the fleet's attention: the parent asks for 63 gates for all of PG(2,3), wh
 below its own depth-3 optimum of `13*4 + 12 = 64`. The one-gate deficit therefore looks INHERITED
 FROM THE PARENT rather than introduced by the cut, so sibling cuts of the same parent are likely
 to be one gate short in the same way.
+
+## Confirmed on a second step: L-meta-1979
+
+The prediction above was tested on another cut of the same 63-gate parent and held exactly.
+
+`L-meta-1979` states its budget as `size <= 63`. Its incidence is the difference set `{0,1,3,9}`
+in Z/13: 13 points, 13 lines, 52 incident pairs. Any two distinct points share exactly one line
+(checked by script), so there is no K(2,2), every rectangle is a point-star or a line-star, and
+with 13 stars the bound is `52 + 13 - 1 = 64`. The budget is 63.
+
+One gate short, on the nose, exactly as the inherited-deficit reading predicted.
+
+That step also carries a RELAXED false set - it only demands falsity on generic maximal false
+inputs, the arc-like point and line sets with no incidence between them, rather than exactness
+everywhere. That slack does not help: every weight-two input is itself allowed, so the circuit
+must be exact on all inputs of weight at most two; an AND of an OR of points with an OR of lines
+is then forced to be a star, which restores the 64 count; and a mixed cover by 13 stars has to be
+all point stars or all line stars.
+
+So two independent cuts of the 63-gate parent are each short by exactly one gate. The deficit is
+in the parent's own target, not in either cut: the parent asks for 63 against its own depth-3
+optimum of `13*4 + 12 = 64`. Sibling cuts of that parent should be expected to be unachievable
+in the same way.
+
+Neither step is claimed false. Turning the rectangle bound into a lower bound for ARBITRARY
+monotone circuits is the open monotone star-cover theorem, and for L-meta-1979 it would also have
+to be extended to the relaxed arc-only false set.
