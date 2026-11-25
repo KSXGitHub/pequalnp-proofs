@@ -31,9 +31,34 @@ NO_PROOF = ("no proof is expected", "propose a cut")
 
 
 def merged(step_id: str) -> bool:
-    """Whether that step's proof file is already in the repo (so reusable)."""
-    name = step_id.replace("-", "_").replace("L_meta", "L_meta")
-    return (OUTSIDE / f"{name}.lean").exists()
+    """Whether a proof of that step is in the repo, EITHER as its own file or as a
+    merged reduction of it.
+
+    The first version only looked for L_meta_<n>.lean and so missed reductions
+    entirely: L-meta-2373 names L-meta-2371 as kin, and R_meta_2371_418.lean is
+    merged and is a perfectly good template, but the check reported "none is in
+    the repo".
+    """
+    name = step_id.replace("-", "_")
+    if (OUTSIDE / f"{name}.lean").exists():
+        return True
+    return bool(reductions_of(step_id))
+
+
+def reductions_of(step_id: str) -> list[str]:
+    """Merged reductions of this step, as file names.
+
+    The desk allows AT MOST THREE reductions per step, so this decides whether the
+    reduction route - the user's stated priority - is even open. All four Petersen
+    family steps (651, 2371, 2373, 2375) already carry three each, which closed
+    that route for the whole family; finding that out costs one directory listing
+    and was worth knowing before spending anything.
+    """
+    m = re.fullmatch(r"L-([a-z0-9]+)-(\d+)", step_id)
+    if not m:
+        return []
+    stem = f"R_{m.group(1)}_{m.group(2)}_"
+    return sorted(f.name for f in OUTSIDE.glob(f"{stem}*.lean"))
 
 
 def named_kin(sketch: str) -> list[str]:
@@ -55,6 +80,19 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
     score = 0
 
     # The single best predictor we have: a proof of a relative already in-repo.
+    # Is the reduction route open at all? This is checked first because it is the
+    # user's stated priority and because it is a hard gate, not a preference.
+    slots = reductions_of(step_id)
+    if len(slots) >= 3:
+        score -= 25
+        why.append(
+            f"REDUCTION SLOTS FULL: {len(slots)} already merged ({', '.join(slots)}) - "
+            "the cap is three, so only a proof or a refutation is left here"
+        )
+    else:
+        score += 20
+        why.append(f"reduction slots open ({len(slots)}/3 used) - the preferred artifact")
+
     kin = [k for k in named_kin(sketch) if k != step_id]
     have = [k for k in kin if merged(k)]
     if have:
