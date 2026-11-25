@@ -49,8 +49,18 @@ while [ "$(date +%s)" -lt "$end" ]; do
     esac
   done
 
+  # OUR CAPACITY IS WHAT THE DESK SAYS, NOT WHAT join.txt SAYS. A lease answer
+  # carries `capacity` and `capacity_note`: "You hold 1 of 2 steps. 2 grows as
+  # your proofs are checked." join.txt says five may be held, but the desk capped
+  # us at TWO, and asking past the cap is what produced the 429 rate limits that
+  # cost eight leases before the beat handling was fixed. So take the cap from the
+  # most recent answer that reported one, and fall back to MAXHOLD.
+  cap="$(cat "$S/capacity" 2>/dev/null || true)"
+  case "$cap" in ''|*[!0-9]*) cap="$MAXHOLD" ;; esac
+  [ "$cap" -gt "$MAXHOLD" ] && cap="$MAXHOLD"
+
   held=$(find "$S/live" -name '*.lease' 2>/dev/null | wc -l)
-  if [ "$held" -lt "$MAXHOLD" ]; then
+  if [ "$held" -lt "$cap" ]; then
     # ALTERNATE THE TWO POOLS. Asking only `--another` fed us the same stream of
     # 10xxx rows for hours, every one a shape that cannot convert: a lower bound,
     # or a twin whose budget sits one gate below its floor. One `--hard` call by

@@ -68,8 +68,32 @@ def answer(step_id: str) -> dict[str, object] | None:
 
 
 def is_open(ans: dict[str, object]) -> bool:
-    """The desk row, read straight off the lease answer."""
-    return ans.get("reductions_open") is True
+    """The desk row, read from BOTH places it is published.
+
+    It appears as the top-level `reductions_open` AND as `gap.reductions`, and
+    THEY DISAGREE. Across the steps leased today, six carry gap.reductions true
+    while the top-level key is absent entirely: 651, 1888, 1900, 2371, 4955 and
+    7698. Reading only the top level therefore reported "NOT open to reductions"
+    for steps that are open - the opposite of the error this file was written to
+    prevent. L-meta-4955 was about to be written off that way with a slot free.
+    """
+    gap = ans.get("gap")
+    in_gap = gap.get("reductions") is True if isinstance(gap, dict) else False
+    return ans.get("reductions_open") is True or in_gap
+
+
+def live_count(ans: dict[str, object]) -> int | None:
+    """`gap.reductions_live`: how many reductions are live on this step, 0 to 3.
+
+    This is the desk's own count and it beats inferring from merged R_ files,
+    which only sees what has already landed on main. Returns None when the field
+    is absent, and the merged-file count is then the only estimate available.
+    """
+    gap = ans.get("gap")
+    if not isinstance(gap, dict):
+        return None
+    n = gap.get("reductions_live")
+    return n if isinstance(n, int) else None
 
 
 def is_search(ans: dict[str, object]) -> bool:
@@ -130,12 +154,22 @@ def report_one(step_id: str) -> int:
             "not posted to be proved.\n  Search the range; a reduction does not apply.\n"
         )
         return 1
+    # Prefer the desk's OWN live count over the merged-file proxy: a merged file
+    # is only what has landed on main, while gap.reductions_live counts what is
+    # live right now, which is what the cap of three is actually about.
+    live = live_count(ans)
     got = sorted(merged_reductions().get(step_id, []))
-    if len(got) >= CAP:
-        sys.stdout.write(f"{step_id}: open to reductions, but SLOTS FULL ({len(got)}/{CAP}): {', '.join(got)}\n")
+    n = live if live is not None else len(got)
+    src = "desk's reductions_live" if live is not None else "merged R_ files on upstream/main"
+    if live is not None and live != len(got):
+        sys.stdout.write(f"  (desk says {live} live, {len(got)} merged on main; using the desk's)\n")
+    if n >= CAP:
+        extra = f": {', '.join(got)}" if got else ""
+        sys.stdout.write(f"{step_id}: open to reductions, but SLOTS FULL ({n}/{CAP}{extra})\n")
         return 1
-    used = f"{len(got)}/{CAP} used: {', '.join(got)}" if got else f"0/{CAP} used"
-    sys.stdout.write(f"{step_id}: OPEN to reductions ({used}). A reduction will be checked.\n")
+    sys.stdout.write(
+        f"{step_id}: OPEN to reductions ({n}/{CAP} used, per the {src}).\n  A reduction will be checked.\n"
+    )
     return 0
 
 

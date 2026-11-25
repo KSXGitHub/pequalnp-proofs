@@ -14,12 +14,22 @@ import json,sys,os,re
 S=sys.argv[1]
 d=json.load(sys.stdin)
 g=d.get("gap")
+# RECORD THE CAPACITY THE DESK REPORTS, whether or not a step came with it. An
+# answer can carry `capacity` and `capacity_note` ("You hold 1 of 2 steps. 2
+# grows as your proofs are checked."). join.txt says five may be held; the desk
+# capped us at TWO, and asking past the cap is what produced the 429s that cost
+# eight leases. poll.sh reads this file instead of guessing.
+cap=d.get("capacity")
+if isinstance(cap,int) and cap>0:
+    open(os.path.join(S,"capacity"),"w").write(str(cap))
+    note=d.get("capacity_note")
+    if note: open(os.path.join(S,"capacity_note"),"w").write(str(note))
 if not g:
     print("NO_STEP:", d.get("note") or d.get("error") or "all held"); sys.exit(0)
 gid=g["id"]
 json.dump(d, open(os.path.join(S,"steps",gid+".json"),"w"), indent=1)
 open(os.path.join(S,"live",gid+".lease"),"w").write(d["lease"]["id"])
-print("GOT", gid)
+print("GOT", gid, "cap", cap if cap else "?")
 ' "$S"
   ;;
 beat)   curl -fsS -m 20 -X POST "$DESK/beat?lease=$(cat "$S/live/$2.lease")" >/dev/null && echo OK || echo FAIL ;;
