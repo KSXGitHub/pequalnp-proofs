@@ -17,6 +17,10 @@ import pathlib
 import re
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import eligible
+
 S = pathlib.Path(__file__).resolve().parent
 REPO = pathlib.Path("/home/user/pequalnp-proofs")
 OUTSIDE = REPO / "lean" / "PEqualNP" / "Outside"
@@ -46,19 +50,17 @@ def merged(step_id: str) -> bool:
 
 
 def reductions_of(step_id: str) -> list[str]:
-    """Merged reductions of this step, as file names.
+    """MERGED reductions of this step, read from upstream/main.
 
-    The desk allows AT MOST THREE reductions per step, so this decides whether the
-    reduction route - the user's stated priority - is even open. All four Petersen
-    family steps (651, 2371, 2373, 2375) already carry three each, which closed
-    that route for the whole family; finding that out costs one directory listing
-    and was worth knowing before spending anything.
+    Two things learned the hard way. First, the count must come from upstream, not
+    from the working directory: globbing OUTSIDE counted our own uncommitted
+    R_meta_8647_1.lean and reported "1/3 used" for a step with no merged reduction
+    at all. Second, this count is the only available signal for whether the step is
+    open to reductions: the desk refuses one with "its row in the desk file does
+    not say reductions: true", that flag is not in any reachable API or file, and a
+    merged reduction is proof the flag was set.
     """
-    m = re.fullmatch(r"L-([a-z0-9]+)-(\d+)", step_id)
-    if not m:
-        return []
-    stem = f"R_{m.group(1)}_{m.group(2)}_"
-    return sorted(f.name for f in OUTSIDE.glob(f"{stem}*.lean"))
+    return eligible.merged_reductions().get(step_id, [])
 
 
 def named_kin(sketch: str) -> list[str]:
@@ -86,12 +88,23 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
     if len(slots) >= 3:
         score -= 25
         why.append(
-            f"REDUCTION SLOTS FULL: {len(slots)} already merged ({', '.join(slots)}) - "
-            "the cap is three, so only a proof or a refutation is left here"
+            f"reductions FULL: {len(slots)} merged ({', '.join(slots)}); the cap is three, "
+            "so only a proof or a refutation is left here"
+        )
+    elif slots:
+        score += 40
+        why.append(
+            f"PROVEN open to reductions ({len(slots)}/3 merged: {', '.join(slots)}) - "
+            "a reduction here will actually be checked"
         )
     else:
-        score += 20
-        why.append(f"reduction slots open ({len(slots)}/3 used) - the preferred artifact")
+        # A merged reduction is the only available evidence that the step's desk row
+        # says `reductions: true`. With none, the desk closes a reduction unchecked -
+        # which is how two submissions were lost today.
+        why.append(
+            "no merged reduction exists, so reduction eligibility is UNKNOWN: two such "
+            "submissions were closed unchecked today. AIM AT A PROOF, not a reduction"
+        )
 
     kin = [k for k in named_kin(sketch) if k != step_id]
     have = [k for k in kin if merged(k)]
@@ -124,11 +137,20 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
         score += 20
         why.append(f"weight {weight}: moderate, and not crowded")
     else:
-        score += 10
-        why.append(
-            f"weight {weight} >= {FRONTIER_WEIGHT}: unlikely to be provable, so aim at a "
-            "REDUCTION - 2 to 4 hypotheses, little competition, credited when they land"
-        )
+        # Only worth taking at this weight if a reduction is actually permitted here;
+        # otherwise it is a frontier step we can neither prove nor cut.
+        if slots:
+            score += 10
+            why.append(
+                f"weight {weight} >= {FRONTIER_WEIGHT}: not provable, but reductions ARE "
+                "open here, so aim at 2 to 4 hypotheses"
+            )
+        else:
+            score -= 30
+            why.append(
+                f"weight {weight} >= {FRONTIER_WEIGHT} and reductions not known to be open: "
+                "no realistic artifact here, skip it"
+            )
 
     # The desk telling us it expects no proof is decisive.
     if any(p in low for p in NO_PROOF):
