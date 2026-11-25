@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+"""Gate and push ONE artifact file as its own branch, cut from upstream/main.
+
+Replaces submit.sh in typed Python at the user's request: they are not confident
+that ad-hoc Bash will avoid doing damage, and this is the script that runs git
+branch/commit/push, so it is where a mistake costs most. Every git call is an
+argument list, never a shell string.
+
+IT ALSO FIXES A REAL BUG in the shell version, which did
+
+    git checkout main && git checkout -b <gid>
+
+that is, cut the artifact branch from the FORK'S main. Our main carries the CI
+workflows, so a pull request from such a branch adds those files too and is
+refused upstream on file count. The user confirmed cutting from upstream/main as
+an important principle and the shell script quietly disagreed with it. Here the
+branch is cut from upstream/main and BOTH the three-dot and two-dot diffs must
+contain exactly the one intended file before anything is pushed.
+
+It also follows join.txt's order: renew the lease once immediately before
+pushing, and if that answers 410 another agent has settled the step, so nothing
+is sent at all.
+
+usage: submit.py <step-id> [--artifact <path>]
+       --artifact overrides gap.file, for a reduction R_<prog>_<n>_<k>.lean
+"""
+
+from __future__ import annotations
+
+import json
+import pathlib
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Final
+
+S: Final = pathlib.Path(__file__).resolve().parent
+REPO: Final = pathlib.Path("/home/user/pequalnp-proofs")
+DESK: Final = "https://pequalnp.com/desk"
+#: Absolute path to git, resolved once. A bare "git" would be looked up through
+#: PATH at call time, which is precisely the kind of ambiguity worth removing
+#: from the one script that pushes to a remote.
+GIT: Final = shutil.which("git") or "/usr/bin/git"
+TRAILERS: Final = (
+    "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n"
+    "Claude-Session: https://claude.ai/code/session_01WciZtTf3SkGtfE4r3rxdjL"
+)
+
+
+class AbortError(Exception):
+    """Something is not right, and nothing has been pushed."""
+
+
+def git(*args: str, stdin: str | None = None, check: bool = True) -> str:
+    p = subprocess.run(  # noqa: S603
+        [GIT, *args], cwd=REPO, capture_output=True, text=True, input=stdin, check=False
+    )
+    if check and p.returncode != 0:
+        raise AbortError(f"git {' '.join(args)} failed: {p.stderr.strip()}")
+    return p.stdout.strip()
+
+
+def desk_state(gid: str) -> str:
+    url = f"{DESK}/step?" + urllib.parse.urlencode({"gap": gid})
+    try:
+        with urllib.request.urlopen(url, timeout=15) as r:  # noqa: S310
+            return str(json.loads(r.read()).get("state", ""))
+    except Exception:
+        return ""
+
+
+def beat(gid: str) -> str:
+    """Renew the lease; '410' means another agent already settled the step."""
+    lease = S / "live" / f"{gid}.lease"
+    if not lease.exists():
+        return "no-lease"
+    url = f"{DESK}/beat?" + urllib.parse.urlencode({"lease": lease.read_text().strip()})
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, method="POST"), timeout=20):  # noqa: S310
+            return "OK"
+    except urllib.error.HTTPError as e:
+        return str(e.code)
+    except Exception as e:
+        return f"error: {e}"
+
+
+def gate(name: str, argv: list[str], want: str) -> None:
+    p = subprocess.run(  # noqa: S603
+        argv, cwd=REPO, capture_output=True, text=True, check=False
+    )
+    out = p.stdout + p.stderr
+    tail = "\n".join(out.splitlines()[-4:])
+    sys.stdout.write(f"-- {name} --\n{tail}\n")
+    if want not in out:
+        raise AbortError(f"{name} did not report {want}")
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        sys.stderr.write(__doc__ or "")
+        return 2
+    gid = argv[0]
+    gap = json.load(open(S / "steps" / f"{gid}.json"))["gap"]
+    artifact = str(argv[argv.index("--artifact") + 1]) if "--artifact" in argv else str(gap["file"])
+
+    try:
+        state = desk_state(gid)
+        sys.stdout.write(f"1. desk state: {state or 'unknown'}\n")
+        if state not in ("open", "leased", ""):
+            raise AbortError(f"step is {state}; do not spend a push on it")
+
+        gate("lint", [str(S / "lint.py"), gid], "LINT OK")
+        gate("check", [str(S / "check.sh"), artifact], "CHECK_OK")
+        gate("decls", [str(S / "decls.sh"), artifact], "DECLS_OK")
+
+        sys.stdout.write("4. branch cut from upstream/main\n")
+        git("fetch", "-q", "upstream", "main")
+        git("checkout", "-q", "-B", gid, "upstream/main")
+        git("add", "-f", "--", artifact)  # artifacts sit in .git/info/exclude
+        staged = git("diff", "--cached", "--name-only").splitlines()
+        if staged != [artifact]:
+            git("reset", "-q")
+            raise AbortError(f"staged files are not exactly [{artifact}]: {staged}")
+        git("commit", "-q", "-F", "-", stdin=f"{gid}\n\n{TRAILERS}\n")
+
+        # Both diff forms, because the upstream compare API uses the merge base
+        # while a local three-dot diff does not - disagreeing on that once opened
+        # six junk pull requests on a third party's repository.
+        for spec in (f"upstream/main...{gid}", f"upstream/main..{gid}"):
+            files = git("diff", "--name-only", spec).splitlines()
+            sys.stdout.write(f"   {spec}: {files}\n")
+            if files != [artifact]:
+                raise AbortError(f"{spec} is not exactly [{artifact}]")
+
+        beaten = beat(gid)
+        sys.stdout.write(f"5. lease renewed: {beaten}\n")
+        if beaten == "410":
+            raise AbortError("410 - another agent settled this step; sending nothing")
+
+        for attempt in range(1, 5):
+            try:
+                git("push", "-q", "-u", "origin", gid)
+                break
+            except AbortError:
+                if attempt == 4:
+                    raise
+                sys.stdout.write(f"   push retry {attempt}\n")
+                time.sleep(attempt * 5)
+
+        done = S / "done" / pathlib.Path(artifact).name
+        done.write_text((REPO / artifact).read_text())
+        sys.stdout.write(f"6. pushed: {git('log', '--oneline', '-1')}\n")
+        sys.stdout.write(f"BRANCH_READY {gid} (artifact {artifact})\n")
+        return 0
+    except AbortError as e:
+        sys.stdout.write(f"ABORT: {e}\n")
+        return 1
+    finally:
+        git("checkout", "-q", "main", check=False)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

@@ -28,6 +28,9 @@ select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 # the structural check on a found circuit, and the randomness is simulated
 # annealing, not cryptography.
 "search/*.py" = ["T201", "S101", "S311"]
+# submit.py is a CLI whose output is its report, and it shells out to git by
+# argument list (never a shell string), which is the safe form S603 warns about.
+"submit.py" = ["T201"]
 
 # A test narrows a type with `assert`. S101 rejects one because `python -O`
 # strips it, which the test run never does.
