@@ -108,17 +108,49 @@ def report(title: str, edges: list[tuple[int, int]], budget: int | None) -> int:
     if budget is None:
         sys.stdout.write("  no gate count found in the title; pass the budget yourself\n")
         return 0
-    want = budget - 1
-    sys.stdout.write(f"  the twin asks for <= {want} gates (title says at least {budget})\n")
-    if c4 == 0 and want < floor:
+
+    # WHICH SIDE DO WE HOLD? This was wrong in the first version, which assumed
+    # the twin every time and so told me to release L-meta-10968 - a POSITIVE
+    # row - as statement_seems_false, the opposite of the truth. The negated
+    # twin announces itself in the title; anything else is the positive row.
+    low = title.lower()
+    twin = "false:" in low or "it is false that" in low
+
+    if twin:
+        want = budget - 1
         sys.stdout.write(
-            f"  VERDICT: no monotone circuit of {want} gates exists. The step can only hold if a\n"
-            "  NOT gate beats the monotone floor, which has not happened on any graph measured\n"
-            "  here. DO NOT spend an agent on a witness hunt; release statement_seems_false.\n"
+            f"  WE HOLD THE NEGATED TWIN: it asks us to EXHIBIT a circuit of <= {want} gates\n"
+            f"  (the positive row claims at least {budget})\n"
+        )
+        if c4 == 0 and want < floor:
+            sys.stdout.write(
+                f"  VERDICT: no monotone circuit of {want} gates exists, since the floor is {floor}.\n"
+                "  The step can only hold if a NOT gate beats the monotone floor, which has not\n"
+                "  happened on any graph measured here. DO NOT spend an agent on a witness hunt;\n"
+                "  release statement_seems_false.\n"
+            )
+            return 1
+        sys.stdout.write("  VERDICT: the floor does not rule it out - a witness hunt is worth running.\n")
+        return 0
+
+    sys.stdout.write(
+        f"  WE HOLD THE POSITIVE ROW: it claims at least {budget} gates are needed, which is a\n"
+        "  LOWER BOUND over every circuit, NOT a witness we can exhibit\n"
+    )
+    if c4 == 0 and floor < budget:
+        sys.stdout.write(
+            f"  VERDICT: a monotone circuit of {floor} gates exists (the star cover), which is\n"
+            f"  BELOW the claimed {budget}, so the claim is FALSE. Release statement_seems_false,\n"
+            "  and keep the cover circuit: the negated twin is provable by exhibiting it.\n"
         )
         return 1
-    sys.stdout.write("  VERDICT: the floor does not rule it out - a witness hunt is worth running.\n")
-    return 0
+    sys.stdout.write(
+        f"  VERDICT: the monotone floor is {floor}, so the claim is consistent and probably TRUE -\n"
+        "  but proving it needs a lower bound over all circuits, NOT gates included, which is a\n"
+        "  formalized counting argument rather than an artifact. Not winnable here: release\n"
+        "  missing_lemma. Do not spend an agent on it.\n"
+    )
+    return 2
 
 
 def main(argv: list[str]) -> int:
