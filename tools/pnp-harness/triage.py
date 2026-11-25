@@ -139,11 +139,15 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
     else:
         # Only worth taking at this weight if a reduction is actually permitted here;
         # otherwise it is a frontier step we can neither prove nor cut.
-        if slots:
+        # `slots` being non-empty proves the step ALLOWS reductions, but three of
+        # them means no slot is free - so a reduction is still unavailable. An
+        # earlier version tested only `if slots` and cheerfully told the caller
+        # "reductions ARE open here" one line after reporting them FULL.
+        if 0 < len(slots) < 3:
             score += 10
             why.append(
                 f"weight {weight} >= {FRONTIER_WEIGHT}: not provable, but reductions ARE "
-                "open here, so aim at 2 to 4 hypotheses"
+                "open here with a slot free, so aim at 2 to 4 hypotheses"
             )
         else:
             score -= 30
