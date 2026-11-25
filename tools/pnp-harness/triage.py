@@ -21,7 +21,10 @@ S = pathlib.Path(__file__).resolve().parent
 REPO = pathlib.Path("/home/user/pequalnp-proofs")
 OUTSIDE = REPO / "lean" / "PEqualNP" / "Outside"
 
-#: Steps at or above this weight sat on the program's open frontier every time.
+#: Steps at or above this weight sat on the program's open frontier every time -
+#: meaning we will not PROVE them. That is no longer disqualifying, because a
+#: REDUCTION is a creditable outcome for a step we cannot prove, and hard steps
+#: are far less contested than easy ones. See the scoring note below.
 FRONTIER_WEIGHT = 40
 #: Phrases by which the desk itself says it expects no proof.
 NO_PROOF = ("no proof is expected", "propose a cut")
@@ -47,6 +50,7 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
     sketch = (g.get("sketch") or "") + " " + (g.get("context") or "")
     stmt = g.get("statement") or g.get("goal") or ""
     weight = g.get("weight") or 0
+    low = sketch.lower()
     why: list[str] = []
     score = 0
 
@@ -59,22 +63,42 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
     elif kin:
         why.append(f"names kin {', '.join(kin)} but none is in the repo")
 
-    # Weight, calibrated against this session's outcomes.
+    # A negated twin is the best thing on the desk: a counterexample is sent as an
+    # ordinary proof against it, it is cheap to settle either way, and we may already
+    # hold the counterexample from having refuted the positive step.
+    if "exact negation of another step" in low:
+        score += 50
+        why.append("NEGATED TWIN: a counterexample is submitted here as an ordinary proof")
+
+    # Weight. This no longer penalises hard steps the way it did, because the
+    # outcome for a step we cannot prove is now a REDUCTION rather than a release.
+    # Of two ACCEPTED submissions, the one that MERGED was a reduction; the proof
+    # lost because the step was weight 5 with seven in-repo templates, so another
+    # agent produced a near-identical file and theirs cleared the checker first.
+    # Easy for us is easy for everyone, and the merge slot goes to one of them.
     if weight <= 10:
-        score += 30
-        why.append(f"weight {weight} is in the band our accepted proof came from")
+        score += 20
+        why.append(
+            f"weight {weight}: provable, but easy steps are the MOST contested - "
+            "only worth it if closable inside the five-minute exclusive window"
+        )
     elif weight < FRONTIER_WEIGHT:
-        score += 10
-        why.append(f"weight {weight} is moderate")
+        score += 20
+        why.append(f"weight {weight}: moderate, and not crowded")
     else:
-        score -= 40
-        why.append(f"weight {weight} >= {FRONTIER_WEIGHT}: every such step was frontier")
+        score += 10
+        why.append(
+            f"weight {weight} >= {FRONTIER_WEIGHT}: unlikely to be provable, so aim at a "
+            "REDUCTION - 2 to 4 hypotheses, little competition, credited when they land"
+        )
 
     # The desk telling us it expects no proof is decisive.
-    low = sketch.lower()
     if any(p in low for p in NO_PROOF):
-        score -= 50
-        why.append("the desk itself expects no proof here, only a cut")
+        score += 25
+        why.append(
+            "the desk asks for a CUT here, which is exactly a reduction - "
+            "it is telling us the intended artifact, not warning us off"
+        )
 
     # Shape. An existential with small arity can often be closed by `decide`.
     if stmt.lstrip().startswith("∃"):
