@@ -24,6 +24,11 @@ exclude = ["lint.py", "show.py", "skeleton.py", "mkrefute.py"]
 select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 
 [tool.ruff.lint.per-file-ignores]
+# Search scripts are research CLIs: their output IS the result, their asserts ARE
+# the structural check on a found circuit, and the randomness is simulated
+# annealing, not cryptography.
+"search/*.py" = ["T201", "S101", "S311"]
+
 # A test narrows a type with `assert`. S101 rejects one because `python -O`
 # strips it, which the test run never does.
 "tests/**/*.py" = ["S101"]
