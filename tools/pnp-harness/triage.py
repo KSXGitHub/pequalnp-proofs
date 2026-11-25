@@ -12,6 +12,7 @@ Prints a verdict per step: TAKE (with the route), or SKIP (with the reason).
 
 from __future__ import annotations
 
+import difflib
 import json
 import pathlib
 import re
@@ -65,6 +66,31 @@ def reductions_of(step_id: str) -> list[str]:
     return eligible.merged_reductions().get(step_id, [])
 
 
+def statement_of(step_id: str) -> str:
+    """The posted statement of a merged proof, taken from its theorem signature."""
+    f = OUTSIDE / f"{step_id.replace('-', '_')}.lean"
+    if not f.exists():
+        return ""
+    m = re.search(
+        rf"theorem PEqualNP\.Outside\.{step_id.replace('-', '_')} :\s*(.*?)\s*:=",
+        f.read_text(),
+        re.S,
+    )
+    return " ".join(m.group(1).split()) if m else ""
+
+
+def similarity(step_id: str, kin_id: str) -> float:
+    """How close our posted statement is to a merged relative's, 0 to 1."""
+    try:
+        mine = " ".join(str(json.load(open(S / "steps" / f"{step_id}.json"))["gap"]["statement"]).split())
+    except (OSError, KeyError):
+        return 0.0
+    theirs = statement_of(kin_id)
+    if not mine or not theirs:
+        return 0.0
+    return difflib.SequenceMatcher(None, theirs, mine).ratio()
+
+
 def named_kin(sketch: str) -> list[str]:
     """Every L-meta/R-meta id the sketch points at: parents and siblings."""
     return sorted(set(re.findall(r"[LR]-meta-\d+(?:-\d+)?", sketch)))
@@ -110,9 +136,19 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
 
     kin = [k for k in named_kin(sketch) if k != step_id]
     have = [k for k in kin if merged(k)]
-    if have:
+    # Existence of a relative's proof is not enough: it is only a TEMPLATE if its
+    # statement is close to ours. L-meta-2872's relative L-meta-2874 exists and is
+    # 738 lines, but scores 0.36 similarity - a construction upper bound against a
+    # replacement claim - so "copy, rename, adapt" would have been wasted effort.
+    close = [(k, r) for k in have if (r := similarity(step_id, k)) >= 0.75]
+    if close:
         score += 60
-        why.append(f"TEMPLATE IN REPO: {', '.join(have)} - copy, rename the namespace, adapt")
+        best = ", ".join(f"{k} ({r:.2f})" for k, r in close)
+        why.append(f"TEMPLATE IN REPO: {best} - copy, rename the namespace, adapt")
+    elif have:
+        score += 10
+        loose = ", ".join(f"{k} ({similarity(step_id, k):.2f})" for k in have)
+        why.append(f"relatives in repo but statements differ: {loose} - same family, NOT a copy")
     elif kin:
         why.append(f"names kin {', '.join(kin)} but none is in the repo")
 
