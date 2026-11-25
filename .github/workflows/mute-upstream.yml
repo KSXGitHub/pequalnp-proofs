@@ -1,0 +1,90 @@
+# Stop GitHub notifying the owner about activity on their upstream pull requests.
+#
+# WHY. Every comment on, and every closure of, a pull request we open generates a
+# notification for the account that opened it - and we open them with the owner's
+# token, so the owner is the author and GitHub subscribes them automatically. The
+# tournament's checker comments on every pull request and closes the ones it will
+# not check, so the noise is continuous and none of it needs the owner's attention:
+# verdicts are read here by upstream-pr-status.yml and reported in the session.
+#
+# This cannot be done from the agent's container: that container's GitHub access is
+# scoped to the fork, and the App token is refused outright for these endpoints
+# ("Resource not accessible by integration"). It needs the owner's PAT, which lives
+# here as PNP_PR_TOKEN, with the `notifications` scope the owner added for this.
+#
+# TWO MECHANISMS, because only one of them is certain:
+#   - thread: unsubscribe from one pull request's own thread. Surgical, and leaves
+#     every other notification from the repository intact.
+#   - repo: set the repository subscription to ignored. Certain to exist, and
+#     silences ALL notifications from that repository for the owner.
+# The `scope` input chooses. `thread` is tried first and reports whether the
+# endpoint exists at all; `repo` is the hammer.
+name: Mute upstream notifications
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: 'thread = mute specific pull requests; repo = ignore the whole repository'
+        type: choice
+        options: [thread, repo]
+        default: thread
+      prs:
+        description: 'With scope=thread: space-separated pull request numbers'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  mute:
+    if: github.repository == 'KSXGitHub/pequalnp-proofs'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mute
+        env:
+          GH_TOKEN: ${{ secrets.PNP_PR_TOKEN }}
+          UPSTREAM: open-goat/pequalnp-proofs
+          SCOPE: ${{ inputs.scope }}
+          PRS: ${{ inputs.prs }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then echo "::error::secret PNP_PR_TOKEN is not set"; exit 1; fi
+
+          echo "token scopes: $(gh api -i rate_limit 2>/dev/null | grep -i '^x-oauth-scopes:' || echo unknown)"
+
+          if [ "$SCOPE" = "repo" ]; then
+            # Documented and certain: Activity > Watching > Set a repository subscription.
+            # ignored=true means never notify, which overrides participation.
+            if out="$(gh api -X PUT "repos/$UPSTREAM/subscription" \
+                        -F subscribed=false -F ignored=true 2>&1)"; then
+              echo "OK repository ignored: $UPSTREAM"
+              printf '%s\n' "$out" | head -5
+            else
+              echo "FAILED to ignore the repository:"
+              printf '%s\n' "$out" | head -10
+              exit 1
+            fi
+            exit 0
+          fi
+
+          # scope=thread. A pull request's own thread subscription lives under the
+          # issues namespace; if that endpoint is absent this reports it clearly so
+          # the repo-level switch can be used instead, rather than failing silently.
+          [ -n "${PRS// /}" ] || { echo "::error::scope=thread needs pull request numbers in `prs`"; exit 1; }
+          fail=0
+          for n in $PRS; do
+            if out="$(gh api -X PUT "repos/$UPSTREAM/issues/$n/subscription" -F ignored=true 2>&1)"; then
+              echo "OK  muted #$n"
+            elif printf '%s' "$out" | grep -q "Not Found"; then
+              echo "NO ENDPOINT for #$n: per-thread muting is unavailable; use scope=repo"
+              printf '%s\n' "$out" | head -3
+              fail=1
+            else
+              echo "FAILED #$n:"
+              printf '%s\n' "$out" | head -5
+              fail=1
+            fi
+          done
+          exit "$fail"
