@@ -46,8 +46,22 @@ GIT: Final = "/usr/bin/git"
 CAP: Final = 3
 
 
-def merged_reductions() -> dict[str, list[str]]:
-    """Step id -> merged reduction file names, read from upstream/main only."""
+def merged_reductions(fetch: bool = True) -> dict[str, list[str]]:
+    """Step id -> merged reduction file names, read from upstream/main only.
+
+    FETCHES FIRST by default. The fleet merges hundreds of files an hour, so this
+    answer goes stale in minutes: L-meta-909 read 2/3 at 08:00 and 3/3 at 08:10,
+    a third reduction having landed in between. Acting on the cached figure would
+    have meant writing a hypothesis for a slot that no longer existed.
+    """
+    if fetch:
+        subprocess.run(  # noqa: S603
+            [GIT, "fetch", "-q", "upstream", "main"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     p = subprocess.run(  # noqa: S603
         [GIT, "ls-tree", "-r", "--name-only", "upstream/main", "lean/PEqualNP/Outside/"],
         cwd=REPO,
