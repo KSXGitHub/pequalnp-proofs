@@ -54,6 +54,31 @@ finish in 480 s, so 14 gates over 9 inputs is orders of magnitude out of reach.
 A 14-gate run that does not return is therefore EXPECTED and must never be read
 as UNSAT.
 
+HOW THIS COMPARES WITH THE PROJECT'S OWN PROVED BOUND, which is the strongest
+reason to keep the verdict modest. The repository contains
+PEqualNP.MetaComplexity.L204 (lean/PEqualNP/MetaComplexity/L204.lean, proved via
+EdgeFn.stmtLB_final), and notes/note-1-edge-function-exact-size.md explains it:
+
+    |A| + |E| + k <= s + 1
+
+for every circuit of size s, given that every CYCLE has length at least 7, that
+any two distinct vertices of degree at least 3 are joined only by walks of length
+at least 7, and that k <= tau(G). The same note gives the matching upper bound
+|E| + |T| - 1 from any vertex cover T (L105), that it needs no NOT gate (L154),
+and exact values for paths and cycles (L102, L106).
+
+So the numeric formula here is the project's, but THE HYPOTHESES ARE NOT. L204
+wants girth >= 7 and well-separated hubs; this tool asks only for C4-freeness,
+which is far weaker, so it claims the bound in a generality the project did not
+prove. Measured on the nine-vertex graphs this family keeps posting: every one has
+GIRTH 3 - they contain triangles - and hubs at distance 1 or 2, so L204 does NOT
+apply to any of them. That is precisely why those steps are open and why the desk
+is posting them. It also means a verdict here cannot be upgraded by citing L204.
+
+The note confirms the C4 caveat exactly, though: "The statement is FALSE with a
+4-cycle: (x0 OR x2) AND (x1 OR x3) is an explicit 3-gate circuit for C4, against
+|E| + tau - 1 = 5."
+
 So: this tool tells you a step is very probably false and that a witness hunt is
 not worth an agent, which is the decision actually being made. It does not settle
 the step. Where the graph HAS a four-cycle the argument says nothing: a 2x2
@@ -79,7 +104,18 @@ S: Final = pathlib.Path(__file__).absolute().parent
 
 
 def parse_edges(text: str) -> list[tuple[int, int]]:
-    """Pull "0-4 1-5 0-6" out of a title or an explicit list."""
+    """Pull "0-4 1-5 0-6" out of a title, but ONLY after the word "edges".
+
+    Scanning the whole title invented a graph out of prose. L-meta-12294 is
+    titled "...monotone f symmetric in inputs 0-2, table ...", and the bare
+    pattern read "0-2" as an edge, reporting a 3-vertex 1-edge graph with a
+    monotone floor of 1 - a confident answer about a graph that does not exist.
+    A hyphenated pair only means an edge where the title says so.
+    """
+    m = re.search(r"\bedges?\b", text, re.IGNORECASE)
+    if m is None:
+        return []
+    text = text[m.end() :]
     out: list[tuple[int, int]] = []
     for a, b in re.findall(r"(\d+)-(\d+)", text):
         e = (int(a), int(b))
