@@ -28,6 +28,11 @@ select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 # the structural check on a found circuit, and the randomness is simulated
 # annealing, not cryptography.
 "search/*.py" = ["T201", "S101", "S311"]
+# table1a/ is the same kind of thing: a decider for the recurring
+# "Table 1a, 5 by 5, mask N" family, plus the experiments that refuted the
+# desk's hinted induced-P4 bound. Output is the result; asserts check a found
+# circuit; the randomness samples read-once formulas.
+"table1a/*.py" = ["T201", "S101", "S311"]
 # submit.py is a CLI whose output is its report, and it shells out to git by
 # argument list (never a shell string), which is the safe form S603 warns about.
 "submit.py" = ["T201"]
