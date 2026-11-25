@@ -33,6 +33,12 @@ select = ["E", "F", "I", "N", "UP", "B", "S", "RUF", "EXE", "T20"]
 # desk's hinted induced-P4 bound. Output is the result; asserts check a found
 # circuit; the randomness samples read-once formulas.
 "table1a/*.py" = ["T201", "S101", "S311"]
+# lrat/ likewise: CNF generators and a proof slicer whose output IS the result.
+# N802/N803/N806 and E741 are deliberate: gentab.py mirrors the variable and
+# function names of the repository's own notes/data/lrat-link/gennot.py so that
+# the two can be compared line for line - they were checked to emit BYTE-IDENTICAL
+# CNF - and renaming them would throw that correspondence away.
+"lrat/*.py" = ["T201", "S101", "S311", "N802", "N803", "N806", "E741"]
 # submit.py is a CLI whose output is its report, and it shells out to git by
 # argument list (never a shell string), which is the safe form S603 warns about.
 "submit.py" = ["T201"]
