@@ -70,9 +70,25 @@ WEDGE: Final = chr(0x2227)
 LIST_RE: Final = re.compile(rf"\[\s*\((\d+)\s*:\s*{NAT}\)(?:\s*,\s*\((\d+)\s*:\s*{NAT}\))*\s*\]")
 NUM_RE: Final = re.compile(rf"\((\d+)\s*:\s*{NAT}\)")
 ARITY_RE: Final = re.compile(rf"IsAO2\s*\(\s*(\d+)\s*:\s*{NAT}\)")
+
+#: A single conjunct of an explicitly written DNF, e.g.
+#: `x4 (0 : Fin (10 : N)) && x4 (1 : Fin (10 : N))`. The SECOND source of an edge
+#: list, and it exists because two of the five steps drawn today posted the same
+#: graph this way instead of as numbers: L-meta-4037's conclusion spells out
+#: fifteen such conjuncts joined by `||`, which is the Petersen edge function
+#: written out longhand, and the number-list scan above sees nothing at all in it.
+DNF_EDGE_RE: Final = re.compile(
+    rf"(\w+)\s*\(\s*(\d+)\s*:\s*Fin\s*\(\s*(\d+)\s*:\s*{NAT}\)\s*\)\s*&&"
+    rf"\s*\1\s*\(\s*(\d+)\s*:\s*Fin\s*\(\s*\3\s*:\s*{NAT}\)\s*\)"
+)
 BUDGET_RE: Final = re.compile(
     rf"\((\d+)\s*:\s*{NAT}\)\s*{LE}\s*\w+\.size\s*{WEDGE}\s*\w+\.size\s*{LE}\s*\((\d+)\s*:\s*{NAT}\)"
 )
+#: `x1.size = (18 : N)`. A size clause can be an equality rather than a range.
+EXACT_SIZE_RE: Final = re.compile(rf"\w+\.size\s*=\s*\((\d+)\s*:\s*{NAT}\)")
+#: The monotone model. Without it the circuit may have NOT gates, and then the
+#: star-cover floor says nothing - the whole point of the caution this prints.
+MONOTONE_RE: Final = re.compile(r"IsAO2|AndOrOnly|Monotone2")
 
 Edge = tuple[int, int]
 
@@ -88,6 +104,23 @@ def bits(n: int, width: int) -> frozenset[int]:
 
 def pair(c: tuple[int, ...]) -> Edge:
     return (min(c), max(c))
+
+
+def dnf_edges(stmt: str) -> tuple[set[Edge], int]:
+    """Edges from an explicitly written DNF of `x i && x j` conjuncts.
+
+    Returns the edge set and the arity taken from the `Fin (n : N)` ascription
+    the conjuncts carry. A conjunct `x i && x i` would be a loop, not an edge, so
+    it is dropped rather than silently turned into one.
+    """
+    edges: set[Edge] = set()
+    n = 0
+    for m in DNF_EDGE_RE.finditer(stmt):
+        u, v = int(m.group(2)), int(m.group(4))
+        n = max(n, int(m.group(3)))
+        if u != v:
+            edges.add(pair((u, v)))
+    return edges, n
 
 
 def arity(stmt: str) -> int:
@@ -178,27 +211,43 @@ def report(gid: str) -> int:
         stmt = str(json.load(fh)["gap"]["statement"])
     lists = [[int(x) for x in NUM_RE.findall(m.group(0))] for m in LIST_RE.finditer(stmt)]
     lists = [xs for xs in lists if len(xs) >= 2]
-    if not lists:
-        say(f"{gid}: no bracketed number lists in the statement")
-        return 2
+    dnf, dnf_arity = dnf_edges(stmt)
 
-    n = arity(stmt)
-    if n == 0:
+    n = arity(stmt) or dnf_arity
+    if n == 0 and lists:
         n = 1 + max(x.bit_length() for xs in lists for x in xs)
-        say(f"{gid}: no IsAO2 arity found; using width {n} from the largest member")
-    say(f"{gid}: {len(lists)} number list(s), {n} inputs")
-    for i, xs in enumerate(lists):
-        sizes = sorted({len(bits(x, n)) for x in xs})
-        say(f"  list {i}: {len(xs)} members, bit-set sizes {sizes}")
-
-    edge_lists = [xs for xs in lists if xs and all(len(bits(x, n)) == 2 for x in xs)]
-    if not edge_lists:
-        say("  no list is all-2-bit, so no edge list to build a graph from")
+        say(f"{gid}: no declared arity; using width {n} from the largest list member")
+    if n == 0:
+        say(f"{gid}: nothing to decode - no number lists and no `x i && x j` conjuncts")
         return 2
 
-    xs = max(edge_lists, key=len)
-    g = Graph({(min(bits(x, n)), max(bits(x, n))) for x in xs}, n)
-    say(f"\n  EDGE LIST: {len(g.edges)} edges on {n} vertices, degrees {g.degrees}")
+    if lists:
+        say(f"{gid}: {len(lists)} number list(s), {n} inputs")
+        for i, members in enumerate(lists):
+            sizes = sorted({len(bits(x, n)) for x in members})
+            say(f"  list {i}: {len(members)} members, bit-set sizes {sizes}")
+    else:
+        say(f"{gid}: no bracketed number lists, {n} inputs")
+
+    # An edge list can arrive either way. Prefer a posted number list when there
+    # is one, since the DNF scan can also pick up conjuncts that are not edges of
+    # the graph under study, and say which source was used either way.
+    edge_lists = [xs for xs in lists if xs and all(len(bits(x, n)) == 2 for x in xs)]
+    xs: list[int] = []
+    if edge_lists:
+        xs = max(edge_lists, key=len)
+        edges = {(min(bits(x, n)), max(bits(x, n))) for x in xs}
+        source = f"number list of {len(xs)} two-bit members"
+    elif dnf:
+        edges = dnf
+        source = f"explicit DNF of {len(dnf)} `x i && x j` conjuncts"
+    else:
+        say("  no all-2-bit list and no DNF conjuncts, so no edge list to build a graph from")
+        return 2
+
+    g = Graph(edges, n)
+    say(f"\n  EDGE LIST from the {source}:")
+    say(f"  {len(g.edges)} edges on {n} vertices, degrees {g.degrees}")
     say(
         f"  triangles {g.triangles()} | vertex pairs with >=2 common nbrs {g.c4_pairs()} (C4-free: {g.c4_pairs() == 0})"
     )
@@ -244,15 +293,32 @@ def report(gid: str) -> int:
         "\n  State it as a HYPOTHESIS. It is NOT PEqualNP.MetaComplexity.L204, whose girth >= 7"
         "\n  and hub-separation hypotheses this graph fails."
     )
+    # The size clause comes in two shapes: a range `lo <= size <= hi`, and a bare
+    # equality `size = n` (L-meta-4037 posts the latter).
     budget = BUDGET_RE.search(stmt)
+    exact = EXACT_SIZE_RE.search(stmt)
     if budget:
         lo, hi = int(budget.group(1)), int(budget.group(2))
-        verdict = (
-            f"budget is BELOW the floor, slack {floor - hi} - the contradiction is a count"
-            if hi < floor
-            else "budget REACHES the floor, so the count alone cannot close it"
+        posted, hi_s = f"{lo} <= size <= {hi}", hi
+    elif exact:
+        hi_s = int(exact.group(1))
+        posted = f"size = {hi_s}"
+    else:
+        return 0
+    say(
+        f"  POSTED {posted} against floor {floor}: "
+        + (
+            f"BELOW the floor, slack {floor - hi_s} - a count can close it"
+            if hi_s < floor
+            else "the floor does NOT exclude it, so a count alone cannot close it"
         )
-        say(f"  POSTED BUDGET {lo} <= size <= {hi} against floor {floor}: {verdict}")
+    )
+    if MONOTONE_RE.search(stmt) is None:
+        say(
+            "  CAUTION: the statement does not say IsAO2, so the model may admit NOT gates, and"
+            "\n  Defs/NestedCoverCircuit.lean warns that NOT gates can make even a monotone"
+            "\n  function cheaper. Read the model predicate before using this floor at all."
+        )
     return 0
 
 
