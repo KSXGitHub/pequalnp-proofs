@@ -22,7 +22,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import eligible
 
-S = pathlib.Path(__file__).resolve().parent
+S = pathlib.Path(__file__).absolute().parent
 REPO = pathlib.Path("/home/user/pequalnp-proofs")
 OUTSIDE = REPO / "lean" / "PEqualNP" / "Outside"
 
@@ -196,10 +196,15 @@ def triage(step_id: str) -> tuple[bool, int, list[str]]:
 
     # The desk telling us it expects no proof is decisive.
     if any(p in low for p in NO_PROOF):
-        score += 25
+        # NO SCORE. This phrase is not evidence that reductions are open, and
+        # treating it as such cost two submissions: both L-meta-8647 and
+        # L-meta-3457 had sketches asking for a cut, and both reductions were
+        # closed unchecked because their desk rows did not say reductions: true.
+        # The sketch describes the intended MATHEMATICS, not the artifact the
+        # checker will accept. Only a merged R_ file settles that.
         why.append(
-            "the desk asks for a CUT here, which is exactly a reduction - "
-            "it is telling us the intended artifact, not warning us off"
+            "the sketch asks for a cut, which is NOT evidence that reductions are "
+            "open - both closed reductions had this phrase; eligible.py decides"
         )
 
     # Shape. An existential with small arity can often be closed by `decide`.

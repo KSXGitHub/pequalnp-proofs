@@ -29,7 +29,7 @@ import re
 import sys
 from typing import Final
 
-S: Final = pathlib.Path(__file__).resolve().parent
+S: Final = pathlib.Path(__file__).absolute().parent
 REPO: Final = pathlib.Path("/home/user/pequalnp-proofs")
 MAX_BYTES: Final = 512 * 1024
 FORBIDDEN: Final = ("initialize", "macro", "syntax", "notation", "elab", "native_decide")

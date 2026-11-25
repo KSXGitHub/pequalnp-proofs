@@ -38,7 +38,7 @@ import pathlib
 import re
 import sys
 
-S = pathlib.Path(__file__).resolve().parent
+S = pathlib.Path(__file__).absolute().parent
 REPO = pathlib.Path("/home/user/pequalnp-proofs")
 
 MAX_HYP_CHARS = 2000

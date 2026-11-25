@@ -23,7 +23,7 @@ import pathlib
 import re
 import sys
 
-S = pathlib.Path(__file__).resolve().parent
+S = pathlib.Path(__file__).absolute().parent
 OUTSIDE = pathlib.Path("/home/user/pequalnp-proofs/lean/PEqualNP/Outside")
 
 

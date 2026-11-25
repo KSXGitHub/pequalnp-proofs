@@ -36,7 +36,7 @@ import sys
 import time
 from typing import Final
 
-S: Final = pathlib.Path(__file__).resolve().parent
+S: Final = pathlib.Path(__file__).absolute().parent
 REPO: Final = pathlib.Path("/home/user/pequalnp-proofs")
 #: Absolute path to git, resolved once. A bare "git" would be looked up through
 #: PATH at call time, which is precisely the kind of ambiguity worth removing
@@ -127,6 +127,27 @@ def main(argv: list[str]) -> int:
         lint_argv = [str(S / "lint.py"), gid]
         m = re.fullmatch(r".*/R_[a-z0-9]+_\d+_(\d+)\.lean", artifact)
         if m is not None:
+            # HARD GATE, ahead of the three checker gates.
+            #
+            # #12891 and #12936 both passed check, lint and decls and were still
+            # closed UNCHECKED: "this step is not open to reductions (its row in
+            # the desk file does not say reductions: true)". The desk does
+            # publish that row - as reductions_open, a TOP-LEVEL key of the
+            # /desk/next answer beside `gap` and `lease`, which is why reading
+            # only `gap` missed it. eligible.py reads it, and also rules out a
+            # search step and a step whose three slots are taken.
+            #
+            # The three gates certify the artifact is CORRECT. They say nothing
+            # about whether anyone will read it. This gate is the difference.
+            elig = subprocess.run(  # noqa: S603
+                [str(S / "eligible.py"), gid], cwd=REPO, capture_output=True, text=True, check=False
+            )
+            sys.stdout.write(f"-- reductions open? --\n{elig.stdout.strip()}\n")
+            if elig.returncode != 0:
+                raise AbortError(
+                    f"reductions are NOT proven open on {gid}, so a reduction would be "
+                    "closed unchecked as #12891 and #12936 were. Submit a proof instead."
+                )
             lint_argv += ["--reduction", m.group(1)]
         gate("lint", lint_argv, "LINT OK")
         gate("check", [str(S / "check.sh"), artifact], "CHECK_OK")

@@ -30,7 +30,18 @@ probe="lean/PEqualNP/Outside/zz_decls_${base}.lean"
   printf '  for (n, _) in env.constants.map2.toList do\n'
   printf '    logInfo m!"DECL {n}"\n'
 } | sed 's/map2/map₂/; s/<- getEnv/← getEnv/' > "$REPO/$probe"
-out="$("$S"/check.sh "$probe" 2>&1)"
+# Run lean directly: check.sh truncates its output to 120 lines, and a long proof emits
+# enough warnings to bury the probe's DECL lines entirely. That is how this reported
+# "PROBE FAILED" on a file that compiles.
+slot=""
+for i in 1 2; do
+  exec {fd}>"$S/logs/build.$i.lock"
+  if flock -n $fd; then slot=$i; break; fi
+  eval "exec ${fd}>&-"
+done
+if [ -z "$slot" ]; then exec {fd}>"$S/logs/build.1.lock"; flock -w 2400 $fd || { echo "lock timeout"; exit 2; }; fi
+out="$(cd "$REPO" && timeout 2400 env PATH="$HOME/.elan/bin:$PATH" \
+        LEAN_PATH="$(cat "$S/leanpath.txt")" lean -D maxHeartbeats=1000000 "$probe" 2>&1)"
 rm -f "$REPO/$probe"
 names="$(printf '%s' "$out" | grep -oE 'DECL [^ ]+' | sed 's/^DECL //' | sort -u)"
 if [ -z "$names" ]; then
@@ -45,7 +56,12 @@ case "$base" in
   R_*) if [ "$n" -eq 1 ]; then echo "DECLS_OK (reduction: exactly one declaration)"; else
          echo "DECLS_FAIL (reduction: must add exactly ONE declaration, found $n)"; exit 1; fi ;;
   L_*) ns="PEqualNP.Outside.$base"
-       stray="$(printf '%s\n' "$names" | grep -v "^$ns" || true)"
+       # Lean mangles a private name as `_private.<file path>.0.<the real name>`, so a prefix
+       # test on the raw string calls a module-local helper's match equations "outside the
+       # namespace". De-mangle first, or the tool cries wolf: on one 3218-line proof it reported
+       # ten private match lemmas of its own helper as strays alongside the single real one.
+       stray="$(printf '%s\n' "$names" | sed -E 's/^_private\.[^ ]*\.[0-9]+\.//' \
+                 | grep -v "^$ns" || true)"
        if [ -z "$stray" ]; then echo "DECLS_OK (all inside $ns)"; else
          echo "DECLS_WARN - these land outside the module namespace:"; printf '%s\n' "$stray" | sed 's/^/    /'
          echo "  Auto-generated lemmas on project definitions are the usual cause; they come from"

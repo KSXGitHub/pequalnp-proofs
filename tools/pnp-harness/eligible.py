@@ -1,49 +1,80 @@
 #!/usr/bin/env python3
-"""Which steps are PROVEN open to reductions, from merged evidence.
+"""Is this step open to reductions? READ THE FLAG. Do not guess.
 
-Two reductions were closed unchecked today with:
+join.txt says: "If a step you hold is open to reductions (its row in the desk
+file says reductions: true, and it is posted to be proved) and you cannot prove
+it, you may submit a REDUCTION instead".
 
-    "this step is not open to reductions (its row in the desk file does not say
-     reductions: true), so this reduction will not be checked"
+The desk publishes that row, and it was in hand the whole time. Not inside
+`gap`, which is why a day went by without noticing it: it is a TOP-LEVEL key of
+the /desk/next answer, a sibling of `gap` and `lease`.
 
-The desk API does not expose that flag - /desk/step returns only state/prs/say -
-and no desk file is reachable (every plausible URL 404s, and nothing in the
-repository carries the rows). So eligibility cannot be read directly.
+    {"gap": {...}, "lease": {...}, "reductions_open": true}
 
-It can be INFERRED soundly in one direction: if a reduction of a step has been
-MERGED upstream, that step's row must have said reductions: true. Checked against
-every data point available:
+Across the 44 steps leased so far it is present-and-true on 32 and absent on 12,
+and it predicts every outcome on record:
 
-    L-meta-5266   R_meta_5266_1 merged   -> eligible; our reduction was ACCEPTED
-    L-meta-2373   three merged           -> eligible, but slots full
-    L-meta-8647   none merged            -> NOT eligible; PR #12891 closed
-    L-meta-3457   none merged            -> NOT eligible; PR #12936 closed
+    L-meta-5266   reductions_open: true   -> reduction ACCEPTED, then merged
+    L-meta-2373   reductions_open: true   -> eligible (slots later filled)
+    L-meta-8647   ABSENT                  -> PR #12891 closed UNCHECKED
+    L-meta-3457   ABSENT                  -> PR #12936 closed UNCHECKED
 
-So the target is a step with ONE or TWO merged reductions: proven eligible, and
-a slot still free under the cap of three. Zero merged reductions means
-eligibility is UNKNOWN, and today's evidence is that unknown usually means no.
+Absent means no. Two pushes were spent learning that, each of which had passed
+check, lint and decls: the gates certify the artifact is correct, never that
+anyone will read it.
 
-It also fixes a counting bug that caused the second loss: the earlier check
-globbed the WORKING DIRECTORY, so it counted our own uncommitted
-R_meta_8647_1.lean and reported "1/3 used" for a step with no merged reductions
-at all. Counting must come from upstream/main.
+Two further conditions, neither of them the flag:
 
-usage: eligible.py            list steps with a free slot and proven eligibility
-       eligible.py <step-id>   report one step
+  * "posted to be proved" excludes a SEARCH step, whose answer carries `shard`
+    and `shards`. Such a step asks for a witness in one range, so there is
+    nothing to reduce however its row reads.
+  * at most three reductions per step. That count is NOT in the lease answer, so
+    it is counted from merged R_ files on upstream/main - and counted there
+    rather than in the working tree, which is what made an earlier version
+    report "1/3 used" for a step with no merged reductions at all: it was
+    globbing our own uncommitted file.
+
+usage: eligible.py             list held steps where a reduction is worth a push
+       eligible.py <step-id>   report one step; exit 0 only if a reduction is OK
 """
 
 from __future__ import annotations
 
 import collections
+import json
 import pathlib
 import re
 import subprocess
 import sys
 from typing import Final
 
+# absolute(), not resolve(): this file is symlinked into the live rig so that
+# there is one copy of it, and the state it reads (steps/) sits beside the
+# SYMLINK, not beside the tracked original. resolve() would follow the link and
+# look for steps/ in the repository, finding none.
+S: Final = pathlib.Path(__file__).absolute().parent
 REPO: Final = pathlib.Path("/home/user/pequalnp-proofs")
 GIT: Final = "/usr/bin/git"
 CAP: Final = 3
+
+
+def answer(step_id: str) -> dict[str, object] | None:
+    """The whole /desk/next answer for a step, as saved when it was leased."""
+    p = S / "steps" / f"{step_id}.json"
+    if not p.exists():
+        return None
+    got: dict[str, object] = json.load(open(p))
+    return got
+
+
+def is_open(ans: dict[str, object]) -> bool:
+    """The desk row, read straight off the lease answer."""
+    return ans.get("reductions_open") is True
+
+
+def is_search(ans: dict[str, object]) -> bool:
+    """A search step is not `posted to be proved`, so nothing to reduce."""
+    return "shard" in ans or "shards" in ans
 
 
 def merged_reductions(fetch: bool = True) -> dict[str, list[str]]:
@@ -77,36 +108,52 @@ def merged_reductions(fetch: bool = True) -> dict[str, list[str]]:
     return dict(out)
 
 
-def report_one(step_id: str, table: dict[str, list[str]]) -> int:
-    got = sorted(table.get(step_id, []))
-    if not got:
+def report_one(step_id: str) -> int:
+    ans = answer(step_id)
+    if ans is None:
         sys.stdout.write(
-            f"{step_id}: NO merged reduction exists.\n"
-            "  Eligibility UNKNOWN, and two submissions were closed unchecked in exactly this\n"
-            "  situation today. Aim at a PROOF, not a reduction.\n"
+            f"{step_id}: no lease answer saved, so the flag cannot be read.\n"
+            "  Lease it again before deciding; do NOT assume reductions are open.\n"
         )
         return 1
-    if len(got) >= CAP:
-        sys.stdout.write(f"{step_id}: eligible, but SLOTS FULL ({len(got)}/{CAP}): {', '.join(got)}\n")
+    if not is_open(ans):
+        sys.stdout.write(
+            f"{step_id}: NOT open to reductions - the lease answer carries no "
+            "reductions_open: true.\n"
+            "  A reduction here is closed UNCHECKED (#12891, #12936 both were).\n"
+            "  Aim at a proof, or release the step honestly.\n"
+        )
         return 1
-    sys.stdout.write(
-        f"{step_id}: PROVEN open to reductions ({len(got)}/{CAP} used: {', '.join(got)}).\n"
-        "  A reduction here will at least be checked.\n"
-    )
+    if is_search(ans):
+        sys.stdout.write(
+            f"{step_id}: a SEARCH step (shard {ans.get('shard')} of {ans.get('shards')}), so it is "
+            "not posted to be proved.\n  Search the range; a reduction does not apply.\n"
+        )
+        return 1
+    got = sorted(merged_reductions().get(step_id, []))
+    if len(got) >= CAP:
+        sys.stdout.write(f"{step_id}: open to reductions, but SLOTS FULL ({len(got)}/{CAP}): {', '.join(got)}\n")
+        return 1
+    used = f"{len(got)}/{CAP} used: {', '.join(got)}" if got else f"0/{CAP} used"
+    sys.stdout.write(f"{step_id}: OPEN to reductions ({used}). A reduction will be checked.\n")
     return 0
 
 
 def main(argv: list[str]) -> int:
-    table = merged_reductions()
     if argv:
-        return report_one(argv[0], table)
-    free = {k: v for k, v in table.items() if 0 < len(v) < CAP}
-    sys.stdout.write(
-        f"{len(table)} steps have a merged reduction; {len(free)} of those have a free slot.\n"
-        "These are the only steps where a reduction is known to be accepted:\n"
-    )
-    for k in sorted(free, key=lambda s: int(s.rsplit("-", 1)[1])):
-        sys.stdout.write(f"  {k:<16} {len(free[k])}/{CAP}  {', '.join(sorted(free[k]))}\n")
+        return report_one(argv[0])
+    table = merged_reductions()
+    rows: list[tuple[str, int, bool]] = []
+    for p in sorted((S / "steps").glob("L-*.json")):
+        ans = answer(p.stem)
+        if ans is None or not is_open(ans) or is_search(ans):
+            continue
+        n = len(table.get(p.stem, []))
+        rows.append((p.stem, n, n < CAP))
+    free = [r for r in rows if r[2]]
+    sys.stdout.write(f"{len(rows)} held steps are open to reductions; {len(free)} still have a free slot.\n")
+    for gid, n, _ in sorted(free, key=lambda r: int(r[0].rsplit("-", 1)[1])):
+        sys.stdout.write(f"  {gid:<16} {n}/{CAP} used\n")
     return 0
 
 

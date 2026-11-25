@@ -27,8 +27,13 @@ state)  curl -fsS -m 20 -G "$DESK/step" --data-urlencode "gap=$2" ;;
 release)
   L="$S/live/$2.lease"; [ -f "$L" ] || { echo "no live lease for $2"; exit 1; }
   q="lease=$(cat "$L")&reason=$3"; [ -n "${4:-}" ] && q="$q&program=$4"
-  curl -sS -m 20 -X POST "$DESK/release?$q"; echo
+  # Do the bookkeeping BEFORE printing. Writing the reply straight to stdout means a caller
+  # that pipes us into `head` closes the pipe mid-reply, we take SIGPIPE, and the `mv` never
+  # runs: the desk has released the step while the local lease file still says we hold it.
+  # That happened. Capture first, move the file, print last.
+  ans="$(curl -sS -m 20 -X POST "$DESK/release?$q")"
   mv "$L" "$S/dead/$2.lease" 2>/dev/null || true
+  printf '%s\n' "$ans"
   ;;
 *) echo "usage: desk.sh next|beat|state|release" ;;
 esac
