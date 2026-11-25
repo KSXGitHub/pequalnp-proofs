@@ -79,9 +79,32 @@ The note confirms the C4 caveat exactly, though: "The statement is FALSE with a
 4-cycle: (x0 OR x2) AND (x1 OR x3) is an explicit 3-gate circuit for C4, against
 |E| + tau - 1 = 5."
 
+A SEARCHABLE STEP IS NOT THE SAME AS A WINNABLE ONE, and conflating the two cost
+an agent most of an afternoon. "Worth searching" here means only that the floor
+does not already settle the answer. Whether the ANSWER can be turned into a Lean
+proof is a separate question, and for one whole family it cannot.
+
+The family: "At fan-in two, one NOT gate saves nothing on edges ...", and its
+negated twin. The twin reads
+
+    ¬ (∀ gates o, <one-NOT circuit computing f> → ∃ gates',
+         Monotone2 gates' ∧ gates'.length ≤ gates.length ∧ <computes f>)
+
+so proving it needs a one-NOT circuit AND the fact that NO monotone circuit that
+small computes f - a monotone LOWER BOUND, not a witness. Both sides therefore
+need a certified search: the positive side bounds general circuits from below, the
+twin bounds monotone ones. On the 8-vertex graphs this family posts, with the
+monotone minimum around 12 to 14 over 256 rows, that is far past the measured LRAT
+ceiling (s=8 on only 6 inputs was already a 1.20 GB Lean file). So the whole
+family goes back regardless of how many four-cycles it has: four-cycles decide
+whether the SEARCH terminates, not whether the PROOF exists.
+
+Released on that reasoning in one cycle: 14290, 14388, 14435, 15000, 15063.
+
 So: this tool tells you a step is very probably false and that a witness hunt is
 not worth an agent, which is the decision actually being made. It does not settle
-the step. Where the graph HAS a four-cycle the argument says nothing: a 2x2
+the step, and a rc=0 "worth searching" is not a promise that the result can be
+submitted. Where the graph HAS a four-cycle the argument says nothing: a 2x2
 biclique covers four edges for three gates and a shared leaf-OR can beat a
 disjoint cover, so those are the steps worth searching. Conversely, when every
 biclique is a star - checkable directly, and all 68 of 10679's were - the shared
