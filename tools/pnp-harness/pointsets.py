@@ -81,11 +81,25 @@ DNF_EDGE_RE: Final = re.compile(
     rf"(\w+)\s*\(\s*(\d+)\s*:\s*Fin\s*\(\s*(\d+)\s*:\s*{NAT}\)\s*\)\s*&&"
     rf"\s*\1\s*\(\s*(\d+)\s*:\s*Fin\s*\(\s*\3\s*:\s*{NAT}\)\s*\)"
 )
+
+#: The same DNF written with BARE numerals, `x 0 && x 10`, which is how
+#: L-meta-9807 posts its 19 conjuncts - no `Fin` ascription anywhere, so the
+#: pattern above matches none of them and the tool reported "nothing to decode"
+#: on a step whose own title says "the listed graph on 14 vertices with 19 edges".
+#: The arity has to come from elsewhere; see `declared_arity`.
+BARE_EDGE_RE: Final = re.compile(r"(\w+)\s+(\d+)\s*&&\s*\1\s+(\d+)\b")
+
+#: Where a bare-numeral DNF declares its input count: `HasCircuitSize 14 ...` or
+#: the binder `fun x : Fin 14 -> Bool`.
+WIDTH_RE: Final = re.compile(rf"HasCircuitSize\s+\(?(\d+)|Fin\s+\(?(\d+)\)?\s*{chr(0x2192)}\s*Bool")
 BUDGET_RE: Final = re.compile(
     rf"\((\d+)\s*:\s*{NAT}\)\s*{LE}\s*\w+\.size\s*{WEDGE}\s*\w+\.size\s*{LE}\s*\((\d+)\s*:\s*{NAT}\)"
 )
 #: `x1.size = (18 : N)`. A size clause can be an equality rather than a range.
 EXACT_SIZE_RE: Final = re.compile(rf"\w+\.size\s*=\s*\((\d+)\s*:\s*{NAT}\)")
+#: `HasCircuitSize 14 (fun x => ...) 24` - the gate budget is the LAST argument,
+#: so the leading `[\s\S]*` is greedy on purpose to reach the final one.
+HASSIZE_RE: Final = re.compile(r"HasCircuitSize\b[\s\S]*\)\s*(\d+)\s*\)")
 #: The monotone model. Without it the circuit may have NOT gates, and then the
 #: star-cover floor says nothing - the whole point of the caution this prints.
 MONOTONE_RE: Final = re.compile(r"IsAO2|AndOrOnly|Monotone2")
@@ -119,6 +133,17 @@ def dnf_edges(stmt: str) -> tuple[set[Edge], int]:
         u, v = int(m.group(2)), int(m.group(4))
         n = max(n, int(m.group(3)))
         if u != v:
+            edges.add(pair((u, v)))
+    if edges:
+        return edges, n
+
+    # No ascribed conjuncts: try the bare-numeral form, whose arity must be read
+    # from the `HasCircuitSize n` / `Fin n -> Bool` declaration instead.
+    w = WIDTH_RE.search(stmt)
+    n = int(w.group(1) or w.group(2)) if w else 0
+    for m in BARE_EDGE_RE.finditer(stmt):
+        u, v = int(m.group(2)), int(m.group(3))
+        if u != v and (n == 0 or (u < n and v < n)):
             edges.add(pair((u, v)))
     return edges, n
 
@@ -193,6 +218,32 @@ class Graph:
         induced = [e for e in self.edges if e[0] in t and e[1] in t]
         return max((sum(1 for e in induced if v in e) for v in t), default=0) <= 1
 
+    def bipartition(self) -> tuple[frozenset[int], frozenset[int]] | None:
+        """A 2-colouring, if the graph is bipartite.
+
+        Worth printing because for a bipartite graph Koenig's theorem makes the
+        minimum vertex cover equal to the maximum matching, so the `|E| + |T| - 1`
+        floor rests on a classical identity rather than a brute-force search.
+        """
+        colour: dict[int, int] = {}
+        for start in range(self.n):
+            if start in colour or not self.adj[start]:
+                continue
+            colour[start] = 0
+            stack = [start]
+            while stack:
+                v = stack.pop()
+                for u in self.adj[v]:
+                    if u not in colour:
+                        colour[u] = 1 - colour[v]
+                        stack.append(u)
+                    elif colour[u] == colour[v]:
+                        return None
+        return (
+            frozenset(v for v, c in colour.items() if c == 0),
+            frozenset(v for v, c in colour.items() if c == 1),
+        )
+
     def name(self) -> str | None:
         """The graph, when the degree sequence and girth pin it to a known one."""
         d = self.degrees
@@ -255,6 +306,14 @@ def report(gid: str) -> int:
     if named:
         say(f"  THIS IS {named}")
 
+    parts = g.bipartition()
+    if parts is not None:
+        a, b = parts
+        say(
+            f"  BIPARTITE, {len(a)} + {len(b)} (so Koenig: minimum cover = maximum matching)"
+            f"\n    side A {sorted(a)}\n    side B {sorted(b)}"
+        )
+
     k, covers = g.min_covers()
     allmax = g.all_maximal_independent()
     say(
@@ -297,12 +356,16 @@ def report(gid: str) -> int:
     # equality `size = n` (L-meta-4037 posts the latter).
     budget = BUDGET_RE.search(stmt)
     exact = EXACT_SIZE_RE.search(stmt)
+    hassize = HASSIZE_RE.search(stmt)
     if budget:
         lo, hi = int(budget.group(1)), int(budget.group(2))
         posted, hi_s = f"{lo} <= size <= {hi}", hi
     elif exact:
         hi_s = int(exact.group(1))
         posted = f"size = {hi_s}"
+    elif hassize:
+        hi_s = int(hassize.group(1))
+        posted = f"HasCircuitSize budget {hi_s}"
     else:
         return 0
     say(
