@@ -43,7 +43,5 @@ if not declared:
     # Nothing declared is unexpected; the project definitions are the minimum.
     declared = ["PEqualNP.Defs"]
 imports = "".join("import %s\n" % m for m in declared)
-open(full, "w").write(
-    "%s\ntheorem %s : %s := by\n  sorry\n" % (imports, g["module"], g["statement"])
-)
+open(full, "w").write("%s\ntheorem %s : %s := by\n  sorry\n" % (imports, g["module"], g["statement"]))
 print("skeleton written:", g["file"], "| imports:", ", ".join(declared))
