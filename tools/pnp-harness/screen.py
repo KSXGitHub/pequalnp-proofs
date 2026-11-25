@@ -148,6 +148,15 @@ def parse_edges(text: str) -> list[tuple[int, int]]:
 
 
 def four_cycles(n: int, edges: list[tuple[int, int]]) -> int:
+    """The number of 4-cycles.
+
+    Summing C(|common neighbours|, 2) over vertex PAIRS counts each 4-cycle
+    TWICE, once per diagonal: the cycle u-a-v-b-u is found at the pair (u,v) and
+    again at (a,b). The reported counts were therefore double until an agent
+    recomputed them independently and got 11 and 15 where this said 22 and 30.
+    The zero/non-zero test that drives every verdict is unaffected, but a doubled
+    count is still a wrong number, so halve it.
+    """
     adj: dict[int, set[int]] = {v: set() for v in range(n)}
     for a, b in edges:
         adj[a].add(b)
@@ -157,7 +166,7 @@ def four_cycles(n: int, edges: list[tuple[int, int]]) -> int:
         c = len(adj[u] & adj[v])
         if c >= 2:
             total += c * (c - 1) // 2
-    return total
+    return total // 2
 
 
 def min_vertex_cover(n: int, edges: list[tuple[int, int]]) -> list[int]:
