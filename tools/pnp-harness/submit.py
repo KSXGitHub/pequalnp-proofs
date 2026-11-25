@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -113,7 +114,15 @@ def main(argv: list[str]) -> int:
         if state not in ("open", "leased", ""):
             raise AbortError(f"step is {state}; do not spend a push on it")
 
-        gate("lint", [str(S / "lint.py"), gid], "LINT OK")
+        # A reduction is linted in reduction mode: its theorem is
+        # R_<prog>_<n>_<k> and the posted statement is its CONCLUSION, so the
+        # proof-mode anchor cannot match and the proof-mode path would not even
+        # find the file.
+        lint_argv = [str(S / "lint.py"), gid]
+        m = re.fullmatch(r".*/R_[a-z0-9]+_\d+_(\d+)\.lean", artifact)
+        if m is not None:
+            lint_argv += ["--reduction", m.group(1)]
+        gate("lint", lint_argv, "LINT OK")
         gate("check", [str(S / "check.sh"), artifact], "CHECK_OK")
         gate("decls", [str(S / "decls.sh"), artifact], "DECLS_OK")
 
