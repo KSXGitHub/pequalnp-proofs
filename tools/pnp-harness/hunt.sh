@@ -6,10 +6,15 @@
 # hour"), so refusing everything mediocre just buys idleness. Draw the batch, work
 # the best of it, release the others at once so other participants can have them.
 #
+# BUDGET ARITHMETIC, learned by running out: the desk allows about THREE declines an
+# hour, and a batch of n costs n-1 of them (we keep one, hand back the rest). So a
+# batch of 3 nearly exhausts the hour and leaves no room to decline a contested step.
+# Default to 2 - one decline per batch - and raise it only when the budget is fresh.
+#
 #   usage: hunt.sh [batch]
 set -uo pipefail
 S="$(cd "$(dirname "$0")" && pwd)"
-N="${1:-3}"
+N="${1:-2}"
 declare -a ids=() scores=()
 for _ in $(seq 1 "$N"); do
   got="$("$S"/desk.sh next --another 2>&1 | tail -1)"
