@@ -43,10 +43,12 @@ def merged(step_id: str) -> bool:
     merged and is a perfectly good template, but the check reported "none is in
     the repo".
     """
-    name = step_id.replace("-", "_")
-    if (OUTSIDE / f"{name}.lean").exists():
-        return True
-    return bool(reductions_of(step_id))
+    # ONLY a proof file is a template. An earlier version also returned True when
+    # a merged REDUCTION of the kin existed, so triage announced
+    # "TEMPLATE IN REPO: L-meta-3773 - copy, rename the namespace, adapt" for a
+    # step whose L_meta_3773.lean does not exist at all. A reduction of a relative
+    # is not something you can copy and rename into a proof.
+    return (OUTSIDE / f"{step_id.replace('-', '_')}.lean").exists()
 
 
 def reductions_of(step_id: str) -> list[str]:
