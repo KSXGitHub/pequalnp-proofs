@@ -26,8 +26,21 @@ from typing import Any, Final
 D: Final = pathlib.Path(__file__).resolve().parent
 N: Final = 10
 EDGES: Final = [
-    (0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 5), (1, 6), (2, 7),
-    (3, 8), (4, 9), (5, 7), (7, 9), (9, 6), (6, 8), (8, 5),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (4, 0),
+    (0, 5),
+    (1, 6),
+    (2, 7),
+    (3, 8),
+    (4, 9),
+    (5, 7),
+    (7, 9),
+    (9, 6),
+    (6, 8),
+    (8, 5),
 ]
 ADJ: Final[dict[int, set[int]]] = {v: set() for v in range(N)}
 for _a, _b in EDGES:
@@ -68,16 +81,10 @@ class Circuit:
         self.og: set[int] = _flat(raw, "outGates")
 
     def well_formed(self) -> bool:
-        return all(
-            all(j < i for j in self.lgs[i]) and all(j < i for j in self.rgs[i])
-            for i in range(self.size)
-        )
+        return all(all(j < i for j in self.lgs[i]) and all(j < i for j in self.rgs[i]) for i in range(self.size))
 
     def bare_counts(self) -> list[int]:
-        return [
-            sum(1 for i in range(self.size) if v in self.lv[i] or v in self.rv[i])
-            for v in range(N)
-        ]
+        return [sum(1 for i in range(self.size) if v in self.lv[i] or v in self.rv[i]) for v in range(N)]
 
     def gate_vals(self, u: frozenset[int]) -> list[bool]:
         val: list[bool] = [False] * self.size

@@ -12,7 +12,7 @@ variables are useless). Cardinality constraint: for each variable, at most 2
 gates have it in either side's bare set."
 
 The model (PEqualNP/Defs/AndCountCircuit.lean): each gate is an AND of two sides;
-a side is true when one of its bare vertices lies in U, or one of the earlier
+a side is true when one of its bare vertices lies in u, or one of the earlier
 gates it reads is true. The output is an OR of bare vertices and gates. So ORs
 are free and only the ANDs are counted - which is why 6 is a real constraint.
 
@@ -39,8 +39,21 @@ from pysat.solvers import Cadical153  # type: ignore[import-untyped]
 D: Final = pathlib.Path(__file__).resolve().parent
 N: Final = 10
 EDGES: Final = [
-    (0, 1), (1, 2), (2, 3), (3, 4), (4, 0), (0, 5), (1, 6), (2, 7),
-    (3, 8), (4, 9), (5, 7), (7, 9), (9, 6), (6, 8), (8, 5),
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 4),
+    (4, 0),
+    (0, 5),
+    (1, 6),
+    (2, 7),
+    (3, 8),
+    (4, 9),
+    (5, 7),
+    (7, 9),
+    (9, 6),
+    (6, 8),
+    (8, 5),
 ]
 ADJ: Final[dict[int, set[int]]] = {v: set() for v in range(N)}
 for _a, _b in EDGES:
@@ -94,13 +107,19 @@ def solve(ng: int, budget: float) -> dict[str, object] | None:
             marks.append(m)
         cls += CardEnc.atmost(lits=marks, bound=BARE_CAP, vpool=pool, encoding=EncType.seqcounter).clauses
 
-    def side(tag: str, i: int, p: int, U: frozenset[int],
-             var: dict[tuple[int, int], int], gate: dict[tuple[int, int], int],
-             gval: dict[tuple[int, int], int]) -> int:
+    def side(
+        tag: str,
+        i: int,
+        p: int,
+        u: frozenset[int],
+        var: dict[tuple[int, int], int],
+        gate: dict[tuple[int, int], int],
+        gval: dict[tuple[int, int], int],
+    ) -> int:
         """One side of gate i at point p: an OR of selected bare vars in U and
         selected earlier gates that are true."""
         s = int(pool.id((tag, i, p)))
-        terms: list[int] = [var[(i, v)] for v in sorted(U)]
+        terms: list[int] = [var[(i, v)] for v in sorted(u)]
         aux: list[int] = []
         for j in range(i):
             a = int(pool.id((tag + "a", i, j, p)))
@@ -115,14 +134,14 @@ def solve(ng: int, budget: float) -> dict[str, object] | None:
         return s
 
     gval = {(i, p): int(pool.id(("g", i, p))) for i in range(ng) for p in range(len(pts))}
-    for p, (U, want) in enumerate(pts):
+    for p, (u, want) in enumerate(pts):
         for i in range(ng):
-            a = side("l", i, p, U, lv, lg, gval)
-            b = side("r", i, p, U, rv, rg, gval)
+            a = side("l", i, p, u, lv, lg, gval)
+            b = side("r", i, p, u, rv, rg, gval)
             g = gval[(i, p)]
             cls += [[-g, a], [-g, b], [g, -a, -b]]
-        # eval = OR of selected bare output vars in U, and selected true gates
-        lits: list[int] = [ov[v] for v in sorted(U)]
+        # eval = OR of selected bare output vars in u, and selected true gates
+        lits: list[int] = [ov[v] for v in sorted(u)]
         for i in range(ng):
             a = int(pool.id(("oa", i, p)))
             cls += [[-a, og[i]], [-a, gval[(i, p)]], [a, -og[i], -gval[(i, p)]]]

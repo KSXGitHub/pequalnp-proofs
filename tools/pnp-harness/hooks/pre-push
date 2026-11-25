@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Refuse a push when the harness gates are failing.
+#
+# This exists because I pushed with failing gates FIVE times in one session, and
+# every time by the same mechanism: running `./gates.sh | tail -1`, so the
+# pipeline's exit status was tail's and `set -e` saw success. The fifth time was
+# immediately after building gates.sh to prevent exactly that.
+#
+# Promising to be careful plainly does not work, so the check moves to where my
+# shell habits cannot reach it. git runs this before every push; a non-zero exit
+# aborts the push.
+#
+# Override, only when the push genuinely has nothing to do with the harness:
+#   SKIP_GATES=1 git push ...
+set -uo pipefail
+
+if [ "${SKIP_GATES:-0}" = "1" ]; then
+  echo "pre-push: gates skipped by SKIP_GATES=1"
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel)"
+gates="$root/tools/pnp-harness/gates.sh"
+[ -x "$gates" ] || exit 0   # nothing to check in this checkout
+
+log="$(mktemp)"
+if "$gates" >"$log" 2>&1; then
+  echo "pre-push: $(tail -1 "$log")"
+  rm -f "$log"
+  exit 0
+fi
+
+echo "pre-push: REFUSING THE PUSH - harness gates are failing:" >&2
+grep -E "^  (FAIL|ok)" "$log" >&2 || true
+echo "--- detail ---" >&2
+grep -A6 "FAIL" "$log" | head -40 >&2
+echo "--- fix them, or push with SKIP_GATES=1 if this push is unrelated ---" >&2
+rm -f "$log"
+exit 1
