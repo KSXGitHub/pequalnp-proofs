@@ -44,25 +44,43 @@ jobs:
           # Filter by AUTHOR: gh does not populate headRepositoryOwner for cross-fork pull
           # requests, so selecting on it silently matched nothing.
           prs="$(gh pr list --repo "$UPSTREAM" --author "$me" --state all --limit 300 \
-                   --json number,headRefName,state,url \
-                   --jq '.[] | [.number,.headRefName,.state,.url] | @tsv')" || prs=""
+                   --json number,headRefName,state,url,headRefOid \
+                   --jq '.[] | [.number,.headRefName,.state,.url,.headRefOid] | @tsv')" || prs=""
           if [ -z "$prs" ]; then echo "no pull requests of ours upstream"; exit 0; fi
 
           {
             echo "### Upstream pull request status"
             echo ""
-            echo "| PR | branch | state | verdict | reason |"
-            echo "|---|---|---|---|---|"
+            echo "| PR | branch | state | verdict | reason | age |"
+            echo "|---|---|---|---|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
-          printf '%-8s %-22s %-8s %-10s %s\n' PR BRANCH STATE VERDICT REASON
+          printf '%-8s %-22s %-8s %-10s %-14s %s\n' PR BRANCH STATE VERDICT REASON AGE
 
-          while IFS=$'\t' read -r num branch state url; do
+          while IFS=$'\t' read -r num branch state url oid; do
             [ -n "${num:-}" ] || continue
-            bodies="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate --jq '[.[].body]' 2>/dev/null)" || bodies='[]'
+            # DATE THE VERDICT. A repair push does not delete the old verdict comment, so a
+            # rejection of a commit that is no longer the head stays visible and reads exactly
+            # like a fresh one. I diagnosed this very pull request's rejection twice by inferring
+            # the comment's age from repository archaeology, and was wrong both times. The
+            # comment body cannot date itself - it names the BASE repository's commit, not this
+            # branch's head - so the head commit's date has to be fetched and compared.
+            head_at="$(gh api "repos/$UPSTREAM/commits/$oid" --jq '.commit.committer.date' 2>/dev/null)" || head_at=""
+            comments="$(gh api "repos/$UPSTREAM/issues/$num/comments" --paginate \
+                          --jq '[.[] | {body, created_at}]' 2>/dev/null)" || comments='[]'
             # The tested parser decides; this shell only moves text around.
-            eval "$(printf '%s' "$bodies" | python3 read_verdict.py)"
-            printf '%-8s %-22s %-8s %-10s %s\n' "#$num" "$branch" "$state" "${VERDICT:-none}" "${CODE:-}"
-            echo "| [#$num]($url) | \`$branch\` | $state | **${VERDICT:-none}** | ${CODE:-} |" >> "$GITHUB_STEP_SUMMARY"
+            eval "$(printf '%s' "$comments" | python3 read_verdict.py --head-committed-at "$head_at")"
+            case "${IS_STALE:-unknown}" in
+              1)       age="STALE" ;;
+              0)       age="current" ;;
+              *)       age="age-unknown" ;;
+            esac
+            printf '%-8s %-22s %-8s %-10s %-14s %s\n' "#$num" "$branch" "$state" "${VERDICT:-none}" "${CODE:-}" "$age"
+            echo "| [#$num]($url) | \`$branch\` | $state | **${VERDICT:-none}** | ${CODE:-} | $age |" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${IS_STALE:-unknown}" = "1" ]; then
+              echo "         NOTE: this verdict was posted ${VERDICT_AT:-?}, BEFORE the current head"
+              echo "               commit ${oid:0:10} of ${head_at:-?}. It judged a commit that is no"
+              echo "               longer here; the checker has not reported on the head yet."
+            fi
             if [ "${IS_REJECTION:-0}" = "1" ] && [ -n "${RUN_ID:-}" ]; then
               echo "         run: https://github.com/$UPSTREAM/actions/runs/$RUN_ID"
               echo "         ---- checker diagnostics ----"

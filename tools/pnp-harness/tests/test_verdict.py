@@ -7,12 +7,20 @@ reported as nothing, and a long log must not be truncated by a pipe.
 
 from __future__ import annotations
 
+import json
+import pathlib
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from lib.verdict import (
+    Comment,
     Verdict,
     diagnostic_lines,
     is_echoed_script,
+    is_stale,
     latest_verdict,
     strip_log_prefix,
     take_verdict,
@@ -131,3 +139,114 @@ class DiagnosticLines(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StalenessTests(unittest.TestCase):
+    """Dating a verdict against the commit it was supposed to judge.
+
+    These encode a real situation. PR #10475 was rejected for `reduce-extra`,
+    repaired, and pushed again as efbf664 at 23:18Z. The rejection comment from
+    before the repair was still the newest verdict on the pull request, and read
+    exactly like a current one. Twice I diagnosed that rejection by inferring
+    its age from repository archaeology, and twice I was wrong; the fix is to
+    compare timestamps instead of reasoning about them.
+    """
+
+    REJECTION_AT = "2026-11-24T23:05:11Z"
+    HEAD_AT = "2026-11-24T23:18:00Z"
+
+    def _verdict(self, created_at: str | None) -> Verdict:
+        found = take_verdict(REAL_REJECTION, created_at)
+        assert found is not None
+        return found
+
+    def test_a_verdict_older_than_the_head_commit_is_stale(self) -> None:
+        self.assertIs(True, is_stale(self._verdict(self.REJECTION_AT), self.HEAD_AT))
+
+    def test_a_verdict_newer_than_the_head_commit_is_current(self) -> None:
+        self.assertIs(False, is_stale(self._verdict("2026-11-24T23:40:00Z"), self.HEAD_AT))
+
+    def test_a_verdict_at_the_very_moment_of_the_commit_is_current(self) -> None:
+        self.assertIs(False, is_stale(self._verdict(self.HEAD_AT), self.HEAD_AT))
+
+    def test_an_unknown_comment_date_is_unknown_not_current(self) -> None:
+        self.assertIsNone(is_stale(self._verdict(None), self.HEAD_AT))
+
+    def test_an_unknown_commit_date_is_unknown_not_current(self) -> None:
+        self.assertIsNone(is_stale(self._verdict(self.REJECTION_AT), None))
+
+    def test_an_unreadable_date_is_unknown_not_current(self) -> None:
+        self.assertIsNone(is_stale(self._verdict("last Tuesday"), self.HEAD_AT))
+
+    def test_no_verdict_at_all_is_unknown(self) -> None:
+        self.assertIsNone(is_stale(None, self.HEAD_AT))
+
+    def test_offsets_are_compared_as_instants_not_as_text(self) -> None:
+        # 23:05Z and 00:05+01:00 are the same instant; a string compare would
+        # call the second one newer.
+        self.assertIs(False, is_stale(self._verdict("2026-11-25T00:05:11+01:00"), self.REJECTION_AT))
+
+    def test_the_newest_dated_comment_supplies_the_date(self) -> None:
+        found = latest_verdict(
+            [
+                Comment(REAL_REJECTION, self.REJECTION_AT),
+                Comment("no verdict here", "2026-11-24T23:50:00Z"),
+            ]
+        )
+        assert found is not None
+        self.assertEqual(self.REJECTION_AT, found.created_at)
+
+    def test_plain_strings_still_work_and_carry_no_date(self) -> None:
+        found = latest_verdict([REAL_REJECTION])
+        assert found is not None
+        self.assertEqual("REJECTED", found.name)
+        self.assertIsNone(found.created_at)
+
+
+class EmitQuotingTests(unittest.TestCase):
+    """The workflow `eval`s read_verdict.py's output, so values must be quoted."""
+
+    def _run(self, payload: str, *args: str) -> str:
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, "read_verdict.py", *args],
+            input=payload,
+            capture_output=True,
+            text=True,
+            cwd=pathlib.Path(__file__).resolve().parent.parent,
+            check=True,
+        )
+        return proc.stdout
+
+    def test_a_hostile_comment_body_cannot_escape_into_a_command(self) -> None:
+        hostile = "'; touch /tmp/pwned; '"
+        payload = json.dumps([{"body": "**REJECTED (reduce-extra)**", "created_at": hostile}])
+        out = self._run(payload)
+        # Each line must assign exactly one token, and that token must be the
+        # original value. shlex.quote only adds quotes where they are needed, so
+        # assert the property rather than a particular quoting style.
+        got = {}
+        for line in out.splitlines():
+            key, _, raw = line.partition("=")
+            tokens = shlex.split(raw) or [""]
+            self.assertEqual(1, len(tokens), f"{key} assigns more than one token: {raw!r}")
+            got[key] = tokens[0]
+        self.assertEqual("REJECTED", got["VERDICT"])
+        self.assertEqual(hostile, got["VERDICT_AT"])
+
+    def test_a_real_shell_eval_recovers_the_values_unchanged(self) -> None:
+        # The workflow does `eval "$(... read_verdict.py)"`, so run that for real
+        # against a value engineered to break out, inside a temporary directory
+        # so the test leaves nothing behind wherever it runs.
+        with tempfile.TemporaryDirectory() as box:
+            probe = pathlib.Path(box) / "pwned"
+            hostile = f"'; touch {probe}; '"
+            payload = json.dumps([{"body": "**REJECTED (reduce-extra)**", "created_at": hostile}])
+            out = self._run(payload)
+            shown = subprocess.run(  # noqa: S603
+                ["/usr/bin/env", "bash", "-c", 'eval "$1"; printf "%s" "$VERDICT_AT"', "_", out],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertFalse(probe.exists(), "eval of the output ran an injected command")
+            self.assertEqual(hostile, shown.stdout)
