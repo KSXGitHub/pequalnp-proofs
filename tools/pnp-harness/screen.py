@@ -26,12 +26,41 @@ star cover - the cover is optimal, and nothing monotone beats it. A "False:" twi
 asking for m + k - 2 can then only be true if a NOT gate beats the monotone
 floor. Measured on both graphs above: every negation pattern tried cost MORE.
 
-This does NOT prove such a step false - NOT gates are not covered by the argument
-and the conclusion is about monotone circuits. It tells you the step is very
-probably false and that a witness hunt is not worth an agent, which is the
-decision actually being made. Where the graph HAS a four-cycle the argument says
-nothing: a 2x2 biclique covers four edges for three gates and a shared leaf-OR
-can beat a disjoint cover, so those are the steps worth searching.
+TWO GAPS IN THAT ARGUMENT, both found by the L-meta-10679 agent after this tool
+was already committed. Neither is a reason to stop using it; both are reasons not
+to call its verdict a proof.
+
+  1. THE ARGUMENT ASSUMES EVERY AND GATE IS <= f. That is what makes
+     Supp1(L) x Supp1(R) a biclique inside E. A general monotone circuit may put
+     an AND gate ABOVE f: f factors CNF-style as g AND h with g, h >= f, and then
+     the product need not lie in E at all. So the floor is airtight for an
+     OR-of-stars circuit and NOT for every monotone circuit. On the 10679 graph
+     that route was inspected - f is the AND over maximal independent sets I of
+     the OR of the vertices outside I, and three of those clauses alone already
+     cost 11 gates even sharing a prefix - so it is strictly worse there. By
+     inspection, not by proof.
+  2. IT SAYS NOTHING ABOUT NOT GATES, which is what these steps actually allow.
+
+What stands in for a proof on point 2 is a calibrated experiment, also from that
+agent: on every small C4-free graph where complete exact synthesis over the full
+AND/OR/NOT basis is decidable, the full basis needs exactly m + k - 1 - eight
+cases for eight (K_1,3; P_4; K_3; P_5; C_5; C_6; triangle with a pendant at each
+corner; triangle with two pendants on one corner). NOT bought nothing in any of
+them. The last two are the closest analogues of the 9-vertex graphs this family
+keeps posting, which are a single triangle with trees hanging off it.
+Runtimes from the same experiment calibrate why the big instances never return:
+C_6 at 7 gates over 6 inputs took 60 s and C_7 at 9 gates over 7 inputs did not
+finish in 480 s, so 14 gates over 9 inputs is orders of magnitude out of reach.
+A 14-gate run that does not return is therefore EXPECTED and must never be read
+as UNSAT.
+
+So: this tool tells you a step is very probably false and that a witness hunt is
+not worth an agent, which is the decision actually being made. It does not settle
+the step. Where the graph HAS a four-cycle the argument says nothing: a 2x2
+biclique covers four edges for three gates and a shared leaf-OR can beat a
+disjoint cover, so those are the steps worth searching. Conversely, when every
+biclique is a star - checkable directly, and all 68 of 10679's were - the shared
+leaf-OR route is structurally unavailable.
 
 usage: screen.py <step-id>            read the edge list from the saved lease answer
        screen.py --edges "0-4 1-5"    screen an edge list directly
