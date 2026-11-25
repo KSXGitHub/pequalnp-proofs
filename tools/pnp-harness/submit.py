@@ -34,14 +34,10 @@ import shutil
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from typing import Final
 
 S: Final = pathlib.Path(__file__).resolve().parent
 REPO: Final = pathlib.Path("/home/user/pequalnp-proofs")
-DESK: Final = "https://pequalnp.com/desk"
 #: Absolute path to git, resolved once. A bare "git" would be looked up through
 #: PATH at call time, which is precisely the kind of ambiguity worth removing
 #: from the one script that pushes to a remote.
@@ -66,27 +62,37 @@ def git(*args: str, stdin: str | None = None, check: bool = True) -> str:
 
 
 def desk_state(gid: str) -> str:
-    url = f"{DESK}/step?" + urllib.parse.urlencode({"gap": gid})
+    """The step's state, via desk.sh.
+
+    Python's urllib does NOT work here: the container routes outbound HTTPS
+    through an agent proxy that curl is configured for and bare urllib is not,
+    so every request came back 403 Forbidden. That made this return "" and the
+    lease check below report 403 instead of OK - silently disabling the one
+    guard that stops a push to a step another agent has already settled. So both
+    calls now go through desk.sh, which uses the configured curl.
+    """
+    p = subprocess.run(  # noqa: S603
+        [str(S / "desk.sh"), "state", gid], capture_output=True, text=True, check=False
+    )
     try:
-        with urllib.request.urlopen(url, timeout=15) as r:  # noqa: S310
-            return str(json.loads(r.read()).get("state", ""))
+        return str(json.loads(p.stdout).get("state", ""))
     except Exception:
         return ""
 
 
 def beat(gid: str) -> str:
-    """Renew the lease; '410' means another agent already settled the step."""
-    lease = S / "live" / f"{gid}.lease"
-    if not lease.exists():
+    """Renew the lease via desk.sh; 410 means another agent settled the step."""
+    if not (S / "live" / f"{gid}.lease").exists():
         return "no-lease"
-    url = f"{DESK}/beat?" + urllib.parse.urlencode({"lease": lease.read_text().strip()})
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, method="POST"), timeout=20):  # noqa: S310
-            return "OK"
-    except urllib.error.HTTPError as e:
-        return str(e.code)
-    except Exception as e:
-        return f"error: {e}"
+    p = subprocess.run(  # noqa: S603
+        [str(S / "desk.sh"), "beat", gid], capture_output=True, text=True, check=False
+    )
+    out = (p.stdout + p.stderr).strip()
+    if "OK" in out:
+        return "OK"
+    if "410" in out:
+        return "410"
+    return out[:120] or "unknown"
 
 
 def gate(name: str, argv: list[str], want: str) -> None:
