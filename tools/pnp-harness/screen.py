@@ -81,13 +81,35 @@ def min_vertex_cover(n: int, edges: list[tuple[int, int]]) -> list[int]:
     return list(range(n))
 
 
-def budget_from_title(title: str) -> int | None:
-    """The N in "needs at least N gates"; the twin's budget is N - 1."""
-    m = re.search(r"at (?:least|most)\s+(\d+)\s+(?:AND|gates)", title)
-    return int(m.group(1)) if m is not None else None
+def budget_from_title(title: str) -> tuple[int, str] | None:
+    """The gate count and WHICH CLAIM it belongs to.
+
+    "needs at LEAST N gates" is a lower bound; its negated twin asks for N - 1.
+    "with at MOST N gates computes ..." is an EXISTENCE claim in its own right,
+    and then N is the budget itself, not N - 1. Conflating the two was a second
+    bug: L-meta-9751 is an at-most row, and reading it as an at-least row put the
+    budget one gate off and named the wrong artifact.
+    """
+    m = re.search(r"at\s+(least|most)\s+(\d+)\s+(?:AND|gates)", title, re.IGNORECASE)
+    if m is None:
+        return None
+    return int(m.group(2)), m.group(1).lower()
 
 
-def report(title: str, edges: list[tuple[int, int]], budget: int | None) -> int:
+def edges_from_statement(statement: str) -> list[tuple[int, int]]:
+    """Read the edge list out of `(x i && x j) || ...`.
+
+    Some titles say only "the listed graph", with the edges in the statement.
+    """
+    out: list[tuple[int, int]] = []
+    for a, b in re.findall(r"x\s+(\d+)\s*&&\s*x\s+(\d+)", statement):
+        e = (int(a), int(b))
+        if e[0] != e[1] and e not in out and (e[1], e[0]) not in out:
+            out.append(e)
+    return out
+
+
+def report(title: str, edges: list[tuple[int, int]], claim: tuple[int, str] | None) -> int:
     n = 1 + max(max(a, b) for a, b in edges)
     m = len(edges)
     c4 = four_cycles(n, edges)
@@ -105,16 +127,45 @@ def report(title: str, edges: list[tuple[int, int]], budget: int | None) -> int:
             f"  has {c4} four-cycle(s): a 2x2 biclique covers four edges for three gates, so the\n"
             f"  m + k - 1 = {floor} count is only an UPPER bound and a search is worth running\n"
         )
-    if budget is None:
+    if claim is None:
         sys.stdout.write("  no gate count found in the title; pass the budget yourself\n")
         return 0
+    budget, kind = claim
 
-    # WHICH SIDE DO WE HOLD? This was wrong in the first version, which assumed
-    # the twin every time and so told me to release L-meta-10968 - a POSITIVE
-    # row - as statement_seems_false, the opposite of the truth. The negated
-    # twin announces itself in the title; anything else is the positive row.
+    # WHICH CLAIM DO WE HOLD? Got this wrong twice, so it is spelled out.
+    # 1. A negated twin says so in the title, and asks for budget - 1.
+    # 2. An "at MOST N gates computes" row is an EXISTENCE claim: budget N, and
+    #    if the cover already fits, writing the cover down IS the proof.
+    # 3. An "at LEAST N gates" row is a lower bound and is not an artifact.
     low = title.lower()
     twin = "false:" in low or "it is false that" in low
+
+    if not twin and kind == "most":
+        sys.stdout.write(
+            f"  WE HOLD AN EXISTENCE CLAIM: some circuit of <= {budget} gates computes it, so a\n"
+            "  single exhibited circuit IS the proof\n"
+        )
+        if c4 == 0 and floor <= budget:
+            sys.stdout.write(
+                f"  VERDICT: WINNABLE WITHOUT A SEARCH. The star cover costs m + k - 1 = {floor},\n"
+                f"  which already fits in {budget}. Build that circuit, verify it on every input,\n"
+                "  and write the Lean file - p10413/mklean.py turns a verified circuit JSON into\n"
+                "  the finished proof. Do this NOW; it is contested.\n"
+            )
+            return 0
+        if c4 == 0:
+            sys.stdout.write(
+                f"  VERDICT: no monotone circuit of {budget} gates exists, since the floor is\n"
+                f"  {floor}. The claim can only hold if a NOT gate beats the monotone floor, which\n"
+                "  has not happened on any graph measured here. Probably FALSE: release\n"
+                "  statement_seems_false rather than spending an agent.\n"
+            )
+            return 1
+        sys.stdout.write(
+            f"  VERDICT: a four-cycle is present so the floor does not bind - the cover bound\n"
+            f"  {floor} is only an upper bound. A witness hunt is worth running.\n"
+        )
+        return 0
 
     if twin:
         want = budget - 1
@@ -167,7 +218,12 @@ def main(argv: list[str]) -> int:
     title = str(gap.get("title") or "")
     edges = parse_edges(title)
     if not edges:
-        sys.stdout.write(f"{argv[0]}: no edge list in the title, nothing to screen\n  {title}\n")
+        # A title saying "the listed graph" keeps its edges in the statement.
+        edges = edges_from_statement(str(gap.get("statement") or ""))
+        if edges:
+            sys.stdout.write("  (edge list read from the statement, not the title)\n")
+    if not edges:
+        sys.stdout.write(f"{argv[0]}: no edge list in title or statement\n  {title}\n")
         return 2
     return report(f"{argv[0]}: {title}", edges, budget_from_title(title))
 
