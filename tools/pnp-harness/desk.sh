@@ -6,8 +6,31 @@ S="$(cd "$(dirname "$0")" && pwd)"
 HANDLE=KSXGitHub
 case "${1:-}" in
 next)
+  # THE SELECTORS THE DESK ACCEPTS. This used to pass only --hard and --another,
+  # and in particular it never sent `value=1` - which tools/pnp.sh sends on EVERY
+  # call, with the comment "value=1: this script can take a value step". So for
+  # the whole first window we were never offered a VALUE step at all, and never
+  # knew the category existed. A value step asks for the LEAST k for which a
+  # template holds, which means it always has a determinate answer, unlike the
+  # FIND rows the desk keeps posting one unit below the star-cover floor.
+  #   --value          be offered value steps too
+  #   --kind  <k>      prove | refute | search | cut | value
+  #   --level <l>      warmup | solid | hard | open
   shift; q="handle=$HANDLE"
-  for a in "$@"; do case "$a" in --hard) q="$q&hard=1";; --another) q="$q&another=1";; esac; done
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hard) q="$q&hard=1" ;;
+      --another) q="$q&another=1" ;;
+      --value) q="$q&value=1" ;;
+      --kind|--level)
+        case "${2:-}" in
+          [a-z][a-z]*) q="$q&${1#--}=$2"; shift ;;
+          *) echo "$1 needs a word, e.g. $1 value" >&2; exit 2 ;;
+        esac ;;
+      *) echo "unknown: $1" >&2; exit 2 ;;
+    esac
+    shift
+  done
   ans="$(curl -fsS -m 30 "$DESK/next?$q")" || { echo "DESK_REFUSED"; exit 1; }
   printf '%s' "$ans" | python3 -I -c '
 import json,sys,os,re
