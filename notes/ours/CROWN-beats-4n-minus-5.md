@@ -49,10 +49,19 @@ which asks for 40. lint.py refuses it on the statement, correctly.
 
 ## Exact values, and what decides the 40 row
 
-L(4) = 11 is SETTLED: exact synthesis over the 16 promise rows, swept UPWARD, UNSAT at 8 three
-independent ways (column-order break 12 s, no symmetry break 66 s, automorphism-orbit pin 2.9 s),
-UNSAT at 9 twice (108 s, 52.8 s), UNSAT at 10 in 2479.9 s, SAT at 11. The earlier worker's two open
-sizes are now genuine UNSATs rather than timeouts. And L(n) = n + A(n) wherever both are known -
+L(4) = 11 is SETTLED, AND EVERY SIZE IS UNSAT TWICE UNDER TWO DIFFERENT SOUND SYMMETRY BREAKS, so
+the result leans on no single symmetry argument:
+
+| gates | column-order break | automorphism-orbit pin | earlier worker |
+|---|---|---|---|
+| 1-7 | - | - | UNSAT (independent CNF) |
+| 8 | UNSAT 12 s | UNSAT 2.9 s | UNSAT (also 66 s with NO break at all) |
+| 9 | UNSAT 108 s | UNSAT 52.8 s | no verdict |
+| 10 | UNSAT 2480 s | UNSAT 381 s | timeout |
+| 11 | SAT, re-simulated on all 16 rows | SAT | SAT |
+
+The earlier worker's two open sizes are now genuine UNSATs rather than timeouts, and the orbit pin
+is 6.5x faster at the size that matters. And L(n) = n + A(n) wherever both are known -
 n = 2, 3, 4 and 5 - so the reduction looks tight.
 A(2) = 1, A(3) = 4, A(4) = 7, A(5) = 10 (UNSAT at 9 twice: 222 s and 34 s). A(6) is 12 or 13,
 undecided at a 3000 s timeout.
