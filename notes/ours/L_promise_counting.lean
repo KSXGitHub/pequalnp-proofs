@@ -39,6 +39,9 @@ def A249 : Fin 3 → Fin 5 → Bool := fun u v => (249 : ℕ).testBit (5 * u.val
 /-- The 4 by 6 mask of L-meta-21851: rows `111111`, `11111.`, `111...`, `1.....`. -/
 def A292863 : Fin 4 → Fin 6 → Bool := fun u v => (292863 : ℕ).testBit (6 * u.val + v.val)
 
+/-- The 3 by 5 mask of L-meta-20531: rows `1111.`, `11.1.`, `111..`. -/
+def A7535 : Fin 3 → Fin 5 → Bool := fun u v => (7535 : ℕ).testBit (5 * u.val + v.val)
+
 /-- Three left vertices and five right ones are forced on `A249`, so eight gates at
 least - and the posted budget was six. -/
 theorem A249_not_six : ¬ RepSizeAtMost A249 6 := by
@@ -55,6 +58,18 @@ theorem A292863_not_seven : ¬ RepSizeAtMost A292863 7 := by
   have key :=
     PEqualNP.MetaComplexity.RepPath.path 4 6 7 A292863 1 2 1 3 (by decide) (by decide) (by decide)
       (by decide) (Exists.intro 5 (by decide)) (Exists.intro 3 (by decide)) h
+  revert key
+  decide
+
+/-- The desk posted this one with its own floor written down: its sketch reads that the
+count of unread rows and columns gives a floor of six on paper, a gap of one. That is the
+`reads_le` bound, which loses a unit; the path witness below recovers it, and seven is
+what the row needed to beat. -/
+theorem A7535_not_six : ¬ RepSizeAtMost A7535 6 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 3 5 6 A7535 0 1 3 2 (by decide) (by decide) (by decide)
+      (by decide) (Exists.intro 4 (by decide)) (Exists.intro 2 (by decide)) h
   revert key
   decide
 

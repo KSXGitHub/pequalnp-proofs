@@ -36,6 +36,20 @@ monotone cost is independently known to be 6 or more - 3824 (bound 4), 9999
 and it refutes none of them, which is the behaviour a sound lower bound must have.
 It is weaker than exhaustion and that is the point: it is free, it is provable in
 Lean in a dozen lines, and the desk cannot argue with a kernel-checked citation.
+
+WHY THIS FAMILY KEEPS PRODUCING FALSE ROWS - the desk says so itself. The sketch
+for L-meta-20531, a 204-point row, reads: "Our count of unread rows and columns
+gives a floor of 6 (on paper), a gap of 1." Its floor is the SAME count as ours,
+one unit weaker. That is exactly `RepReads.reads_le`, which gives card sum <= s+1
+and holds unconditionally; `RepPath.path` gives card sum <= s whenever a path
+witness exists, and on these masks one always does. So the desk posts a row one
+below its own floor, believes the gap is 1, and calls it a search - when the
+sharper lemma in its own repository closes the gap and makes the row impossible.
+Mask 7535 is the case in point: 3 forced rows and 4 forced columns, floor 6 by the
+weak bound and 7 by the sharp one, posted budget 6.
+
+This is why --scan is worth running on every draw rather than on the row in hand:
+the rows are mis-posted systematically, not occasionally. Five so far, 476 points.
 """
 
 from __future__ import annotations
