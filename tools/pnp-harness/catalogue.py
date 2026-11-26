@@ -81,11 +81,24 @@ def rows() -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     for p in sorted((S / "steps").glob("*.json")):
         try:
-            gap = json.load(open(p)).get("gap")
+            rec = json.load(open(p))
         except (OSError, json.JSONDecodeError):
             continue
+        gap = rec.get("gap")
         if not isinstance(gap, dict):
             continue
+        #: POINTS LIVE IN `lease.terms.points`, NOT IN `gap`. This tool sorted by
+        #: `gap.weight` for its whole first day, and weight is a DIFFERENT quantity:
+        #: L-meta-9747 is weight 55 and 1498 POINTS, so it looked like one of the
+        #: cheapest rows we held when it was the most valuable by a wide margin.
+        #: Every ranking produced before this was mis-calibrated. `lease.terms`
+        #: also carries the authoritative `reductions_open` and `kind`/`level` as
+        #: issued, which beat the `gap` copies when they disagree.
+        lease = rec.get("lease")
+        terms = lease.get("terms") if isinstance(lease, dict) else None
+        terms = terms if isinstance(terms, dict) else {}
+        pts = terms.get("points")
+        red_open = terms.get("reductions_open")
         stmt = str(gap.get("statement", ""))
         title = str(gap.get("title", ""))
         hits: list[str] = []
@@ -96,11 +109,11 @@ def rows() -> list[dict[str, object]]:
         out.append(
             {
                 "id": str(gap.get("id", p.stem)),
-                "points": gap.get("points") if isinstance(gap.get("points"), int) else 0,
+                "points": pts if isinstance(pts, int) else 0,
                 "weight": gap.get("weight") if isinstance(gap.get("weight"), int) else 0,
-                "level": str(gap.get("level") or "?"),
-                "kind": str(gap.get("kind") or "?"),
-                "reductions": bool(gap.get("reductions")),
+                "level": str(terms.get("level") or gap.get("level") or "?"),
+                "kind": str(terms.get("kind") or gap.get("kind") or "?"),
+                "reductions": bool(red_open) if red_open is not None else bool(gap.get("reductions")),
                 "live": gap.get("reductions_live"),
                 "cut": title.strip().lower().startswith("a step toward"),
                 "title": title,
@@ -117,12 +130,12 @@ def main(argv: list[str]) -> int:
     want_open = "--reductions-open" in argv
     if want_open:
         data = [r for r in data if r["reductions"] and r["live"] != 3]
-    data.sort(key=lambda r: (-len(r["hits"]), -int(r["weight"] or 0), str(r["id"])))
-    sys.stdout.write(f"{len(data)} steps on file; ordered by how much of our machinery fits\n\n")
+    data.sort(key=lambda r: (-int(r["points"] or 0), -len(r["hits"]), str(r["id"])))
+    sys.stdout.write(f"{len(data)} steps on file; ordered by POINTS, then by how much of our machinery fits\n\n")
     for r in data[:40]:
         slots = "OPEN" if (r["reductions"] and r["live"] != 3) else ("full" if r["reductions"] else "no")
         sys.stdout.write(
-            f"{r['id']:16} w{r['weight'] or 0:<4} {r['level']:<7} {r['kind']:<7}"
+            f"{r['id']:16} {r['points'] or 0:>6}pt {r['level']:<7} {r['kind']:<7}"
             f" red:{slots:<4} {'CUT' if r['cut'] else '   '}  {r['title'][:84]}\n"
         )
         for h in r["hits"]:
