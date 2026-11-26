@@ -127,17 +127,61 @@ def main(argv: list[str]) -> int:
     # The one theorem, carrying the posted statement verbatim. A proof states it
     # directly; a reduction states it as the conclusion after its hypotheses, so
     # only the statement's own presence can be demanded there.
+    # Say what to DO, not only what is wrong. Every message below names the fix,
+    # because the failures here are cheap to repair and expensive to diagnose: a
+    # statement that is PRESENT but reformatted looks identical to one that is
+    # missing, and "no row for this content" looks identical to "wrong name".
+    def why_not_verbatim() -> str:
+        """Distinguish reformatted, paraphrased and absent - they fix differently."""
+        squash = re.sub(r"\s+", " ", text)
+        if re.sub(r"\s+", " ", stmt) in squash:
+            return (
+                "  -> The statement IS in the file but its WHITESPACE differs, so this is a"
+                " formatting fix, not a proof problem. Copy `gap.statement` out of"
+                f" {S / 'steps' / f'{step_id}.json'} and paste it unaltered: no rewrapping, no"
+                " re-indenting, no renamed binders, no added parentheses. `skeleton.py` writes a"
+                " file with it already correct."
+            )
+        head = re.sub(r"\s+", " ", stmt)[:60]
+        if head and head in squash:
+            return (
+                "  -> The statement STARTS in the file but then diverges, so something was edited"
+                " mid-statement. Diff your conclusion against `gap.statement` in"
+                f" {S / 'steps' / f'{step_id}.json'}."
+            )
+        return (
+            "  -> The statement is not in the file at all. If your theorem proves something ELSE,"
+            " no renaming will help: lint matches the posted statement, not the name. Either prove"
+            " this row, or find the row your result actually closes (`catalogue.py` ranks every"
+            " statement on file by how much of our machinery fits, and `settled.py <id>` says"
+            " whether upstream already answered it)."
+        )
+
     if is_reduction:
         if f"theorem {module}" not in text:
-            bad.append(f"the theorem is not named `{module}`")
+            bad.append(
+                f"the theorem is not named `{module}`\n"
+                f"  -> a reduction of this step must be `theorem {module} (h1 : ...) ... : <the"
+                " posted statement> := ...`, and its file must be named"
+                f" `{module.rsplit('.', 1)[-1]}.lean`"
+            )
         if stmt not in text:
-            bad.append("the posted statement does not appear VERBATIM as the conclusion")
+            bad.append("the posted statement does not appear VERBATIM as the conclusion\n" + why_not_verbatim())
         if re.search(r"^\s*namespace\b", text, re.M):
-            bad.append("a reduction declares no namespace; the theorem stands at the top level")
+            bad.append(
+                "a reduction declares no namespace; the theorem stands at the top level\n"
+                "  -> delete the `namespace`/`end` pair and inline what it held, or move those"
+                " helpers into the hypotheses. A reduction is ONE top-level theorem."
+            )
     elif f"theorem {module} : {stmt} :=" not in text:
         bad.append(
             f"the file must contain, character for character, `theorem {module} : <the posted "
-            "statement> :=`. Do not reformat, rewrap, rename a binder or add parentheses."
+            "statement> :=`. Do not reformat, rewrap, rename a binder or add parentheses.\n"
+            + why_not_verbatim()
+            + "\n  -> HELPER LEMMAS ARE ALLOWED, and this is worth knowing: put them inside"
+            f" `namespace {module}` ... `end {module}` and only the one top-level theorem has to"
+            " carry the posted statement. A file full of your own lemmas is one wrapper away from"
+            " submittable - it does not need splitting up."
         )
 
     outside: list[tuple[int, str]] = []
