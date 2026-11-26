@@ -6,7 +6,7 @@
 # `tail`, which discards the tool's exit code, so `set -e` saw success. Call this
 # before every push and read its last line.
 set -uo pipefail
-cd "$(dirname "$0")" || exit 2
+cd "$(dirname "$(readlink -f "$0")")" || exit 2
 export PATH="$HOME/.local/bin:$PATH"
 fail=0
 run() {

@@ -13,7 +13,13 @@
 #   usage: autorefute.sh <STEP>
 # On success it leaves the proving scratch file in place and prints REFUTED.
 set -uo pipefail
-S="$(cd "$(dirname "$0")" && pwd)"; REPO=/home/user/pequalnp-proofs
+# Resolve the SYMLINK before taking the directory. $P/<script>.sh are symlinks into this
+# directory, and bash sets $0 to the path used to invoke the script, not its target - so a
+# plain `dirname "$0"` gave the SCRATCHPAD for every symlinked call and this directory for
+# every direct one. That split the harness state in two: live/, steps/, dead/ and done/
+# existed twice, the poller beat only its own copy, and leases drawn by hand expired
+# unbeaten and unlogged while 166 step statements sat in the other copy unnoticed.
+S="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"; REPO=/home/user/pequalnp-proofs
 gid="${1:?a step id}"
 D="PEqualNP.CircuitLowerBounds.Circuit.eval, PEqualNP.CircuitLowerBounds.Circuit.wires, PEqualNP.CircuitLowerBounds.Circuit.size, PEqualNP.CircuitLowerBounds.GateOp.eval, PEqualNP.MetaComplexity.circuitFun, PEqualNP.MetaComplexity.FanInTwo, List.countP, List.countP.go"
 

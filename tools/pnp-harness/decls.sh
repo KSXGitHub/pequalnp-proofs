@@ -17,7 +17,13 @@
 # anything landing in another namespace (a .eq_1 or .congr_simp on a project definition) is a
 # risk, since the rules say only the one theorem stands outside the module's namespace block.
 set -uo pipefail
-S="$(cd "$(dirname "$0")" && pwd)"; REPO=/home/user/pequalnp-proofs
+# Resolve the SYMLINK before taking the directory. $P/<script>.sh are symlinks into this
+# directory, and bash sets $0 to the path used to invoke the script, not its target - so a
+# plain `dirname "$0"` gave the SCRATCHPAD for every symlinked call and this directory for
+# every direct one. That split the harness state in two: live/, steps/, dead/ and done/
+# existed twice, the poller beat only its own copy, and leases drawn by hand expired
+# unbeaten and unlogged while 166 step statements sat in the other copy unnoticed.
+S="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"; REPO=/home/user/pequalnp-proofs
 f="${1:?a file under lean/PEqualNP/Outside/}"
 [ -f "$REPO/$f" ] || { echo "no such file: $f"; exit 2; }
 base="$(basename "$f" .lean)"

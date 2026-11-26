@@ -3,7 +3,13 @@
 # check at once. At most 2 checks run together (RAM is 15G, each check can want several).
 #   usage: check.sh lean/PEqualNP/Outside/L_meta_1234.lean
 set -uo pipefail
-S="$(cd "$(dirname "$0")" && pwd)"
+# Resolve the SYMLINK before taking the directory. $P/<script>.sh are symlinks into this
+# directory, and bash sets $0 to the path used to invoke the script, not its target - so a
+# plain `dirname "$0"` gave the SCRATCHPAD for every symlinked call and this directory for
+# every direct one. That split the harness state in two: live/, steps/, dead/ and done/
+# existed twice, the poller beat only its own copy, and leases drawn by hand expired
+# unbeaten and unlogged while 166 step statements sat in the other copy unnoticed.
+S="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 REPO=/home/user/pequalnp-proofs
 export PATH="$HOME/.elan/bin:$PATH"
 # REGENERATE leanpath.txt AND logs/ IF THEY ARE MISSING, because they do go

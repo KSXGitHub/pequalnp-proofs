@@ -13,7 +13,13 @@
 #
 #   usage: hunt.sh [batch]
 set -uo pipefail
-S="$(cd "$(dirname "$0")" && pwd)"
+# Resolve the SYMLINK before taking the directory. $P/<script>.sh are symlinks into this
+# directory, and bash sets $0 to the path used to invoke the script, not its target - so a
+# plain `dirname "$0"` gave the SCRATCHPAD for every symlinked call and this directory for
+# every direct one. That split the harness state in two: live/, steps/, dead/ and done/
+# existed twice, the poller beat only its own copy, and leases drawn by hand expired
+# unbeaten and unlogged while 166 step statements sat in the other copy unnoticed.
+S="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 N="${1:-2}"
 declare -a ids=() scores=()
 for _ in $(seq 1 "$N"); do

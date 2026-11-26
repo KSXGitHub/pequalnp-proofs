@@ -2,7 +2,13 @@
 # Gate + push ONE proof file as its own branch. Prints the branch to open a pull request from.
 # Refuses unless the desk still has the step open, the linter passes and lean accepts the file.
 set -uo pipefail
-S="$(cd "$(dirname "$0")" && pwd)"; REPO=/home/user/pequalnp-proofs
+# Resolve the SYMLINK before taking the directory. $P/<script>.sh are symlinks into this
+# directory, and bash sets $0 to the path used to invoke the script, not its target - so a
+# plain `dirname "$0"` gave the SCRATCHPAD for every symlinked call and this directory for
+# every direct one. That split the harness state in two: live/, steps/, dead/ and done/
+# existed twice, the poller beat only its own copy, and leases drawn by hand expired
+# unbeaten and unlogged while 166 step statements sat in the other copy unnoticed.
+S="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"; REPO=/home/user/pequalnp-proofs
 gid="${1:?a step id}"
 file="$(python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1]))["gap"]["file"])' "$S/steps/$gid.json")"
 cd "$REPO" || exit 2
