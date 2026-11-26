@@ -44,20 +44,35 @@ MARKER: Final = "./poll.sh"
 
 
 def poller_count() -> int:
-    """Live pollers, by reading /proc rather than matching a shell command line."""
-    n = 0
+    """Live pollers, counting a poller and its own subshells as ONE.
+
+    A BASH SUBSHELL INHERITS ITS PARENT'S /proc CMDLINE. poll.sh runs its beat
+    loop in a subshell, so that child reads as `/bin/bash ./poll.sh 3500 8` -
+    character for character the same as the poller itself. Matching on the
+    command line therefore counted one poller as two, and this logged "WATCHDOG
+    sees 2 pollers" every minute for twenty minutes while exactly one was
+    running. Harmless to the watchdog's own job, which only ever STARTS a poller
+    when the count is zero, but it is a false alarm in every status report, and
+    process miscounts from pattern-matching have misled this session four times.
+
+    So the test is PARENTAGE, not the command line: a process that matches and
+    whose parent also matches is a subshell of a poller, not a poller.
+    """
+    matched: dict[int, int] = {}
     for d in pathlib.Path("/proc").iterdir():
         if not d.name.isdigit():
             continue
         try:
             cl = (d / "cmdline").read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
-        except (OSError, ProcessLookupError):
+            if not (cl.startswith("bash " + MARKER) or cl.startswith("/bin/bash " + MARKER)):
+                continue
+            # /proc/<pid>/stat field 4 is the parent pid. The command name in
+            # field 2 is parenthesised and may contain spaces, so split after it.
+            stat = (d / "stat").read_text()
+            matched[int(d.name)] = int(stat[stat.rindex(")") + 1 :].split()[1])
+        except (OSError, ProcessLookupError, ValueError, IndexError):
             continue
-        # The poller is `bash ./poll.sh <secs> <maxhold>`; a watchdog or an
-        # editor holding the same path in its arguments is not.
-        if cl.startswith("bash " + MARKER) or cl.startswith("/bin/bash " + MARKER):
-            n += 1
-    return n
+    return sum(1 for pid, ppid in matched.items() if ppid not in matched)
 
 
 def start() -> None:
