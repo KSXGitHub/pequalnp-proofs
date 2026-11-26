@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
-"""Screen a FIND step against the STAR-COVER SIZE FLOOR before dispatching an agent.
+"""Screen a FIND step against the COVER SIZE FLOOR before dispatching an agent.
 
 Why this exists. A FIND step asks for a small monotone circuit for a given function. When
-that function is the edge (or point-line incidence) function of a graph G, and G is C4-FREE,
-every biclique below the function is a star, so the cheapest circuit is a star cover, and a
-cover by centres T costs
+that function is an OR of m AND-terms, each of width s over a point set, group the terms
+under a hitting set of size k (every term contains a chosen CENTRE, each term assigned to
+one). A group of d terms at centre p costs
 
-    one AND per centre          |T|
-  + (deg t - 1) internal ORs    |E| - |T|
-  + (|T| - 1) top ORs           |T| - 1
+    (s - 2) internal ANDs per term   (s-2)m    the s-1 non-centre reads of each term
+  + (d - 1) ORs per group            m - k     combining a group's terms
+  + one AND per group                k         against the centre
+  + (k - 1) top ORs                  k - 1
   ------------------------------------------
-                                |E| + |T| - 1
+                                     (s-1)m + k - 1
 
-Minimising over covers puts the cheapest star cover at |E| + tau - 1, with tau the minimum
-vertex cover (for bipartite G, Koenig makes tau the maximum matching). A step whose posted
-gate bound is BELOW that number is almost certainly FALSE and must not be dispatched; a step
-AT it is constructible and is the best kind of target; a step ABOVE it is genuinely open.
+s = 2 is the GRAPH case: terms are edges, a hitting set is a vertex cover, and the count is
+the familiar star cover |E| + tau - 1 (for bipartite G, Koenig makes tau the maximum
+matching). s = 3 covers point-line systems: the 15 perfect matchings of K6, which are the 15
+lines of the generalized quadrangle GQ(2,2), give 2*15 + 5 - 1 = 34, exactly the size the
+desk holds for L-meta-18856, whose posted 27 is seven gates below it.
+
+The side condition is NOT "the terms pairwise share at most one variable", which is vacuous
+at s = 2 and would pass K(3,3) (whose edge function costs 5 gates against a formula value of
+11). What the floor needs is that no PRODUCT OF ORs covers several terms at once, i.e. that
+there is no 2x2 BOX: no (s-2)-set C and pairs {a,a'}, {b,b'} with all four of C+{a,b},
+C+{a,b'}, C+{a',b}, C+{a',b'} terms. At s = 2 that is precisely C4-freeness (checked here
+against `pointsets.c4_pairs` on random graphs). At s >= 3 a box forces two terms sharing
+s-1 >= 2 variables, so demanding pairwise intersections of at most one variable implies it -
+and that same demand also stops two terms sharing an internal sub-product, which would beat
+the count. So: s = 2 wants C4-freeness, s >= 3 wants a partial linear space.
+
+A step whose posted gate bound is BELOW the floor is almost certainly FALSE and must not be
+dispatched; a step AT it is constructible and is the best kind of target; a step ABOVE it is
+genuinely open.
 
 Three steps drawn today were killed by this count done by hand. It is automated here so the
 next hundred cost seconds rather than an agent each.
@@ -69,6 +85,16 @@ MOD_SUM_RE: Final = re.compile(
 #: `x4 = x5 or x4 = x5 + (1 : Fin (13 : N)) or x4 = x5 + (3 : Fin ...) or ...`.
 MOD_OFF_HEAD_RE: Final = re.compile(rf"\(?\s*(\w+)\s*=\s*(\w+)\s*(?:{VEE}|\))")
 MOD_OFF_TERM_RE: Final = re.compile(r"(\w+)\s*=\s*(\w+)\s*\+\s*\(?\s*(\d+)\s*(?::\s*Fin\s*\(?\s*(\d+))?")
+#: The GUARDED DIFFERENCE form, a fourth modular shape and the one L-meta-5877 posts:
+#: `(^x6 + (21 : N) - ^x5) % (21 : N) in [(0 : N), (5 : N), ...]` with the side guards
+#: `^x5 < (21 : N)` and `(21 : N) <= ^x6` beside it. The `+ n` only keeps the subtraction
+#: inside N, so the relation is `(b - a) % n` with `a` the low-block index and `b` the raw
+#: high-block input index. The sum-form pattern does not match it (there is a subtraction),
+#: nor does the offset chain (there is no `=`), so this 298-point step decoded to nothing.
+MOD_DIFF_RE: Final = re.compile(
+    rf"\(\s*{UPCAST}?(\w+)\s*\+\s*\(?\s*(\d+)\s*(?::\s*{NAT}\s*)?\)?\s*-\s*{UPCAST}?(\w+)\s*\)\s*%"
+    rf"\s*\(?\s*(\d+)\s*(?::\s*{NAT}\s*)?\)?\s*{IN}\s*\[([^]]*)\]"
+)
 #: `x5 != (1 : Fin (13 : N))`: a vertex excluded from one side.
 EXCL_RE: Final = re.compile(rf"(\w+)\s*{NE}\s*\(?\s*(\d+)\s*(?::\s*Fin\s*\(?\s*(\d+))?")
 #: `Finset (Fin (13 : N)) := {(0 : Fin (13 : N)), (1 : ...), (3 : ...), (9 : ...)}`: the offset
@@ -87,6 +113,26 @@ FINSET_OFF_USE_RE: Final = re.compile(r"(\w+)\s*=\s*(\w+)\s*\+\s*(\w+)\b")
 PAIR_LIST_RE: Final = re.compile(r"\[\s*\(\s*\d+\s*,\s*\d+\s*\)(?:\s*,\s*\(\s*\d+\s*,\s*\d+\s*\))+\s*\]")
 PAIR_RE: Final = re.compile(r"\(\s*(\d+)\s*,\s*(\d+)\s*\)")
 
+#: ONE `x i` read of an explicitly written DNF, in either spelling the statements use:
+#: ascribed `x4 (0 : Fin (10 : N))` or bare `x 0`. Terms are then grouped by the text
+#: BETWEEN consecutive reads, so a term may have ANY width.
+#:
+#: This is what the pair-only decoders cannot do, and the failure is not silent-safe: on
+#: L-meta-18856's 3-wide conjuncts `(x 0 && x 9 && x 14)` the bare-pair pattern matched the
+#: FIRST TWO reads of each and the tool reported "explicit DNF of 15 `x i && x j` conjuncts",
+#: a 15-edge graph that is nowhere in the statement, then withheld a verdict because that
+#: invented graph was not C4-free. The real system is 15 lines of three points with a floor of
+#: 34 against a posted 27. A mis-decode that produces a plausible graph is worse than no
+#: decode, so width is read first and the pair path is used only when every term is a pair.
+READ_RE: Final = re.compile(
+    rf"(?P<var>\w+)\s*(?:\(\s*(?P<asc>\d+)\s*:\s*Fin\s*\(\s*(?P<arity>\d+)\s*:\s*{NAT}\s*\)\s*\)"
+    rf"|[ \t](?P<bare>\d+)\b)"
+)
+#: The text between two reads of the SAME term: an `&&`, with parentheses allowed on either
+#: side. A `||`, a comma or anything else ends the term, so `(x 1 && x 2) || (x 3 && x 4)`
+#: reads as two terms and not as one of width four.
+AND_GAP_RE: Final = re.compile(r"[\s)]*&&[\s(]*")
+
 #: A NEGATED statement, `not (exists C, ... size <= N ...)`: "no circuit this small computes
 #: f". The floor still applies but its MEANING INVERTS, so this must be detected or a
 #: winnable refutation is reported as an impossibility. L-meta-9728 and L-meta-9789 are both
@@ -102,6 +148,25 @@ NEG_RE: Final = re.compile(rf"^\s*{NEG}\s*\(")
 #: with whether a star cover fits in a budget, and the budget is a bound variable anyway.
 #: Inverting those would be a silent category error, so they get no floor verdict at all.
 EXISTS_HEADS: Final = (EXISTS, "HasCircuitSize", "RepSizeAtMost")
+
+#: The MIN-SIZE shape, `for all t : N, HasCircuitSize n f t -> B <= t`, with or without a
+#: leading negation. It posts its budget as a BOUND VARIABLE with a threshold beside it, so
+#: `posted_bound` finds no number and fifteen records - two of them over 225 points - were
+#: refused for having no bound at all. Both readings are mechanical:
+#:
+#:   NEGATED:  not (for all t, HasCircuitSize f t -> B <= t)  ==  HasCircuitSize f (B-1),
+#:             because `HasCircuitSize f t` is monotone in t. A plain FIND at B-1 gates.
+#:   POSITIVE: for all t, HasCircuitSize f t -> B <= t        ==  minimum size >= B.
+#:             A LOWER-BOUND claim: the cover count supports it when the count is at least
+#:             B, and REFUTES it when the cover is smaller, because then the cover itself is
+#:             a circuit below B and we hold that witness.
+#:
+#: This is a different shape from the blanket forall-negation guard below, which stays: there
+#: the budget is bound by a quantifier whose body is not a size claim at all.
+MINSIZE_RE: Final = re.compile(
+    rf"({NEG}\s*\(\s*)?{FORALL}\s*(\w+)\s*:\s*{NAT}\s*,[\s\S]*?(?:HasCircuitSize|RepSizeAtMost)\b[\s\S]*?"
+    rf"\)\s*\2\s*{ARROW}\s*\(?\s*(\d+)\s*(?::\s*{NAT}\s*)?\)?\s*{LE}\s*\2"
+)
 
 #: Which half of the input block each variable indexes. `Fin.castAdd k v` is the LOW block,
 #: `Fin.natAdd k v` the HIGH one, so these fix which side of the bipartition is which.
@@ -318,6 +383,37 @@ def modular_relation(stmt: str) -> Relation | None:
     return Relation(edges, 2 * modulus, src, sides, notes)
 
 
+def modular_diff_relation(stmt: str) -> Relation | None:
+    """A bipartite incidence graph given by a GUARDED DIFFERENCE, `(b + n - a) % n in [...]`.
+
+    `a` is the low block (guarded `a < n`) and `b` the high one (guarded `n <= b`), which is
+    how the inputs are laid out: vertices `0 .. n-1` then `n .. 2n-1`. The `+ n` inside the
+    bracket is there only so the subtraction stays in N, so the edge condition is
+    `(b - n - a) % n in offsets` on the side indices. If the guards do not name the two
+    variables, the orientation is unknown and nothing is returned rather than guessed.
+    """
+    m = MOD_DIFF_RE.search(stmt)
+    if m is None:
+        return None
+    vb, shift, va, modulus = m.group(1), int(m.group(2)), m.group(3), int(m.group(4))
+    if modulus <= 0 or shift != modulus:
+        return None
+    off = _offsets(m.group(5), modulus)
+    if not off:
+        return None
+    num = rf"\(?\s*{modulus}\s*(?::\s*{NAT}\s*)?\)?"
+    hi_b = re.search(rf"{num}\s*{LE}\s*{UPCAST}?{re.escape(vb)}\b", stmt) is not None
+    hi_a = re.search(rf"{num}\s*{LE}\s*{UPCAST}?{re.escape(va)}\b", stmt) is not None
+    if hi_a and not hi_b:
+        va, vb = vb, va
+    elif not hi_b:
+        return None
+    edges = {(a, modulus + b) for a in range(modulus) for b in range(modulus) if (b - a) % modulus in off}
+    sides = (frozenset(range(modulus)), frozenset(range(modulus, 2 * modulus)))
+    src = f"modular bipartite incidence over Fin {modulus} x Fin {modulus}, offsets {off} (guarded difference form)"
+    return Relation(edges, 2 * modulus, src, sides, [])
+
+
 def graph_relation(stmt: str) -> Relation | None:
     """A graph from the two forms `pointsets.py` already decodes.
 
@@ -365,13 +461,52 @@ def pair_list_relation(stmt: str) -> Relation | None:
     return Relation(edges, n, f"explicit list of {len(edges)} vertex pairs")
 
 
+def minsize_claim(stmt: str) -> tuple[str, int, str] | None:
+    """The MIN-SIZE shape, as (reading, posted bound, how it was read), or None.
+
+    `find` is the negated reading: a circuit of at most B-1 gates is claimed to exist, so it
+    is screened exactly like any other FIND. `lower-bound` is the positive reading: every
+    circuit for the function is claimed to need at least B gates, which the cover count
+    supports or refutes the other way round.
+    """
+    m = MINSIZE_RE.search(stmt)
+    if m is None:
+        return None
+    threshold = int(m.group(3))
+    if m.group(1) is not None:
+        if threshold < 1:
+            return None
+        return (
+            "find",
+            threshold - 1,
+            f"negated min-size claim: some circuit has size < {threshold}, i.e. at most {threshold - 1} gates",
+        )
+    return (
+        "lower-bound",
+        threshold,
+        f"min-size claim: every circuit for the function needs at least {threshold} gates",
+    )
+
+
 def negation_shape(stmt: str) -> str:
-    """ "", `exists`, `forall` or `other`: what, if anything, the statement negates.
+    """ "", `exists`, `forall`, `other` or `universal-false`: what, if anything, is negated.
 
     Decided by which marker comes FIRST after the leading `not (`, so a `have ...;` preamble
     and any nesting further in are both harmless.
+
+    `universal-false` is the shape `for all C, ... C.size <= N ... -> False`, which is a
+    negated existential wearing a universal's clothes: no leading `not` to find, so the tool
+    read three such steps as FIND rows and INVERTED their verdicts - L-meta-2091 and
+    L-meta-2116 were printed BELOW FLOOR / "do not dispatch, likely false" when the floor is
+    exactly what makes their size hypothesis unsatisfiable and the claim TRUE, and
+    L-meta-7698 was printed AT FLOOR / "best kind of target" when the cover fitting the
+    budget is what makes its hypothesis satisfiable. Being wrong-signed about which steps to
+    dispatch is the one failure this screen must not have.
     """
     if NEG_RE.search(stmt) is None:
+        body = stmt.rstrip()
+        if body.endswith("False") and (ARROW in body or FORALL in body):
+            return "universal-false"
         return ""
     body = stmt[stmt.index(NEG) + 1 :]
     hits = [body.index(h) for h in EXISTS_HEADS if h in body]
@@ -385,7 +520,275 @@ def negation_shape(stmt: str) -> str:
 
 
 def relation(stmt: str) -> Relation | None:
-    return graph_relation(stmt) or pair_list_relation(stmt) or modular_relation(stmt)
+    return graph_relation(stmt) or pair_list_relation(stmt) or modular_relation(stmt) or modular_diff_relation(stmt)
+
+
+# --------------------------------------------------------------------------------------
+# term systems: the same count for AND-terms of any width
+# --------------------------------------------------------------------------------------
+
+
+@dataclass
+class TermSystem:
+    """An OR of AND-terms read off a statement: the terms, how they were read, their widths."""
+
+    terms: list[frozenset[int]]
+    n: int
+    source: str
+    absorbed: int
+    widths: dict[int, int]
+
+    @property
+    def width(self) -> int | None:
+        """The common term width s, or None when the terms are of mixed width."""
+        return next(iter(self.widths)) if len(self.widths) == 1 else None
+
+    @property
+    def points(self) -> list[int]:
+        return sorted({p for t in self.terms for p in t})
+
+
+def dnf_terms(stmt: str) -> tuple[list[frozenset[int]], int]:
+    """The AND-terms of an explicitly written DNF, of any width, plus the arity.
+
+    A term is a maximal run of reads of the SAME variable joined by `&&`. Runs of one read
+    are not terms: a lone `x 0` is no conjunct, and requiring two keeps stray matches such as
+    `HasCircuitSize 15` (which the bare branch reads as the variable `HasCircuitSize`) out.
+    A repeated index inside a term collapses, so `x 1 && x 1 && x 2` is the pair {1, 2}.
+    """
+    reads: list[tuple[str, int, int, int]] = []
+    arity = 0
+    for m in READ_RE.finditer(stmt):
+        asc, bare = m.group("asc"), m.group("bare")
+        if asc is not None:
+            arity = max(arity, int(m.group("arity")))
+            idx = int(asc)
+        elif bare is not None:
+            idx = int(bare)
+        else:
+            continue
+        reads.append((m.group("var"), idx, m.start(), m.end()))
+    if not arity:
+        w = pointsets.WIDTH_RE.search(stmt)
+        arity = int(w.group(1) or w.group(2)) if w is not None else 0
+
+    terms: list[frozenset[int]] = []
+    run: list[int] = []
+    prev: tuple[str, int, int, int] | None = None
+    for cur in reads:
+        joined = prev is not None and cur[0] == prev[0] and AND_GAP_RE.fullmatch(stmt[prev[3] : cur[2]]) is not None
+        if joined:
+            run.append(cur[1])
+        else:
+            if len(run) >= 2:
+                terms.append(frozenset(run))
+            run = [cur[1]]
+        prev = cur
+    if len(run) >= 2:
+        terms.append(frozenset(run))
+
+    if arity:
+        terms = [t for t in terms if all(0 <= i < arity for i in t)]
+    out: list[frozenset[int]] = []
+    seen: set[frozenset[int]] = set()
+    for t in terms:
+        if len(t) >= 2 and t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out, arity
+
+
+def term_system(stmt: str) -> TermSystem | None:
+    """The DNF of a statement as a term system, with absorbed terms dropped.
+
+    A term that strictly CONTAINS another is redundant in an OR (x1x2 || x1x2x3 = x1x2), so
+    it is dropped before the widths are judged: otherwise one absorbed term would make a
+    uniform system look mixed and the floor would be withheld for no reason.
+    """
+    terms, n = dnf_terms(stmt)
+    if len(terms) < 2:
+        return None
+    kept = [t for t in terms if not any(o < t for o in terms)]
+    widths: dict[int, int] = {}
+    for t in kept:
+        widths[len(t)] = widths.get(len(t), 0) + 1
+    shape = "x".join(str(w) for w in sorted(widths)) if len(widths) > 1 else str(next(iter(widths)))
+    src = f"explicit DNF of {len(kept)} AND-terms of width {shape}"
+    return TermSystem(kept, n, src, len(terms) - len(kept), widths)
+
+
+def pairwise_max(terms: list[frozenset[int]]) -> int:
+    """The largest number of variables two distinct terms share."""
+    best = 0
+    for i, a in enumerate(terms):
+        for b in terms[i + 1 :]:
+            best = max(best, len(a & b))
+    return best
+
+
+def box_count(terms: list[frozenset[int]]) -> int:
+    """How many 2x2 BOXES the system contains: the obstruction the floor must rule out.
+
+    A box is a common (s-2)-set C and pairs {a,a'}, {b,b'} with all four C+{a,b} terms, which
+    is covered by the single product (OR of {a,a'}) AND (OR of {b,b'}) AND C - four terms for
+    the price of about one. Two terms sharing exactly s-2 variables leave two variables each;
+    either way of pairing those off is a candidate box, so both are tried. At s = 2 this
+    counts C4s, and it agrees with `pointsets.Graph.c4_pairs` being nonzero.
+    """
+    table = set(terms)
+    count_ = 0
+    for i, a in enumerate(terms):
+        for b in terms[i + 1 :]:
+            common = a & b
+            if len(common) + 2 != len(a) or len(a) != len(b):
+                continue
+            (u1, u2), (v1, v2) = sorted(a - common), sorted(b - common)
+            for x, y in (((u1, v2), (u2, v1)), ((u1, v1), (u2, v2))):
+                if (common | set(x)) in table and (common | set(y)) in table:
+                    count_ += 1
+                    break
+    return count_
+
+
+#: Branch and bound nodes a minimum hitting set may cost before the tool gives up. A
+#: non-return is never a verdict, so exceeding this prints NOT COMPUTED and withholds the
+#: floor rather than hanging the screen on one pathological record.
+HITTING_NODE_CAP: Final = 300_000
+
+
+def min_hitting_set(terms: list[frozenset[int]]) -> tuple[int | None, str]:
+    """The size of a minimum hitting set of the terms, exactly, or None if the search caps.
+
+    Branch and bound: branch on the smallest uncovered term (one of its points must be
+    chosen), bound below by a greedy packing of pairwise disjoint uncovered terms, each of
+    which needs a point of its own. For width-2 systems this is the minimum vertex cover,
+    and it is checked against `pointsets.Graph.min_covers` on random graphs.
+    """
+    if not terms:
+        return 0, "no terms"
+    greedy: set[int] = set()
+    for t in sorted(terms, key=sorted):
+        if not (t & greedy):
+            greedy.add(min(t))
+    best = len(greedy)
+    nodes = 0
+    capped = False
+
+    def lower_bound(rem: list[frozenset[int]]) -> int:
+        used: set[int] = set()
+        packed = 0
+        for t in rem:
+            if not (t & used):
+                packed += 1
+                used |= t
+        return packed
+
+    def rec(rem: list[frozenset[int]], chosen: int) -> None:
+        nonlocal best, nodes, capped
+        if capped:
+            return
+        nodes += 1
+        if nodes > HITTING_NODE_CAP:
+            capped = True
+            return
+        if not rem:
+            best = min(best, chosen)
+            return
+        if chosen + lower_bound(rem) >= best:
+            return
+        pivot = min(rem, key=len)
+        for p in sorted(pivot):
+            rec([t for t in rem if p not in t], chosen + 1)
+
+    rec(sorted(terms, key=sorted), 0)
+    if capped:
+        return None, f"NOT COMPUTED (branch and bound passed {HITTING_NODE_CAP} nodes)"
+    return best, "exhaustive minimum hitting set (branch and bound)"
+
+
+@dataclass
+class TermCounted:
+    """Everything the floor is computed from, for a term system of any width."""
+
+    sys: TermSystem
+    pair_max: int
+    boxes: int
+    k: int | None
+    k_how: str
+
+    @property
+    def shape_ok(self) -> bool:
+        """Whether the cover count can be a floor at all for this system's shape."""
+        if self.sys.width is None or self.boxes:
+            return False
+        return self.sys.width == 2 or self.pair_max <= 1
+
+    def floor_for(self, kind: str) -> int | None:
+        s, k = self.sys.width, self.k
+        if s is None or k is None or not self.shape_ok:
+            return None
+        m = len(self.sys.terms)
+        if kind == "ands":
+            return (s - 2) * m + k
+        if kind == "gates":
+            return (s - 1) * m + k - 1
+        return None
+
+    def formula_for(self, kind: str) -> str:
+        s, m, k = self.sys.width, len(self.sys.terms), self.k
+        if kind == "ands":
+            return f"(s-2)m + k = {s}-2 times {m} + {k}"
+        return f"(s-1)m + k - 1 = ({s} - 1)*{m} + {k} - 1"
+
+    def no_floor_reason(self, kind: str) -> str:
+        if kind == "unknown":
+            return "the cost model is not recognised, so the posted number may not count gates at all"
+        if self.sys.width is None:
+            shape = ", ".join(f"{c} of width {w}" for w, c in sorted(self.sys.widths.items()))
+            return f"the terms are of MIXED width ({shape}); this count needs one width and does not average"
+        if self.boxes:
+            return (
+                f"the system has {self.boxes} 2x2 box(es), so a product of ORs covers several terms at"
+                " once and the cover count is not a floor (at width 2 this is exactly a C4)"
+            )
+        if self.pair_max > 1:
+            return (
+                f"two terms share {self.pair_max} variables, so they can share an internal sub-product"
+                " (and a box may exist); the count needs a partial linear space at width >= 3"
+            )
+        if self.k is None:
+            return f"k {self.k_how}"
+        return "no floor"
+
+    def evidence_note(self) -> str:
+        if self.sys.width is not None and self.sys.width >= 3:
+            return (
+                " [width >= 3: the cover SHAPE is unproven for us - tightness was only checked in small"
+                " sub-cases by exact synthesis, so this is WEAKER evidence than the width-2 case]"
+            )
+        return ""
+
+    def structural_note(self) -> str:
+        if self.sys.width is None:
+            return "mixed term widths"
+        bits = [f"s={self.sys.width}"]
+        if self.boxes:
+            bits.append(f"{self.boxes} box(es)")
+        elif self.pair_max > 1:
+            bits.append(f"two terms share {self.pair_max} variables")
+        elif self.sys.width >= 3:
+            bits.append("cover shape unproven: weaker evidence")
+        if self.sys.absorbed:
+            bits.append(f"{self.sys.absorbed} absorbed term(s) dropped")
+        return "; ".join(bits)
+
+    def cover_label(self) -> str:
+        return "cover" if self.sys.width != 2 else "star cover"
+
+
+def count_terms(sys_: TermSystem) -> TermCounted:
+    k, how = min_hitting_set(sys_.terms)
+    return TermCounted(sys_, pairwise_max(sys_.terms), box_count(sys_.terms), k, how)
 
 
 # --------------------------------------------------------------------------------------
@@ -437,6 +840,24 @@ class Counted:
             return "one AND per centre: tau"
         return f"|E| + tau - 1 = {len(self.graph.edges)} + {self.tau} - 1"
 
+    def no_floor_reason(self, kind: str) -> str:
+        """Why this graph yields no floor. The width-2 instance of the general shape test."""
+        if kind == "unknown":
+            return "the cost model is not recognised, so the posted number may not count gates at all"
+        if self.c4_pairs:
+            return "graph is not C4-free"
+        return f"tau {self.tau_how}"
+
+    def evidence_note(self) -> str:
+        """Width 2 is the case the star normal form argument covers, so nothing extra to add."""
+        return ""
+
+    def structural_note(self) -> str:
+        return f"not C4-free ({self.c4_pairs} pairs)" if self.c4_pairs else ""
+
+    def cover_label(self) -> str:
+        return "star cover"
+
 
 #: Brute-forcing a minimum cover enumerates C(n, k) subsets; past this many vertices the
 #: tool says it did not compute tau rather than hanging. A non-return is never a verdict.
@@ -466,6 +887,12 @@ def count(rel: Relation) -> Counted:
     else:
         tau, how, side_costs = None, f"NOT COMPUTED (non-bipartite on {rel.n} vertices)", []
     return Counted(rel, g, c4, parts, tau, how, side_costs)
+
+
+#: Either kind of decoded target. Both expose the same handful of methods, which is all the
+#: verdict and the table need; only `report` looks at the pieces underneath. Declared here
+#: because `Counted` is defined just above and this is a runtime alias, not an annotation.
+FloorSource = Counted | TermCounted
 
 
 # --------------------------------------------------------------------------------------
@@ -573,9 +1000,12 @@ def side_conditions(stmt: str, counted: Counted) -> SideConditions:
 # --------------------------------------------------------------------------------------
 
 CAUTIONS: Final = (
-    "CAUTIONS, all three of which must be read before this number is used.",
-    "  1. The star-cover cost needs the graph C4-FREE: only then is every biclique below the",
-    "     function a star. This tool prints the C4 pair count and withholds the floor without it.",
+    "CAUTIONS, all four of which must be read before this number is used.",
+    "  1. The cover cost needs NO 2x2 BOX below the function: only then does no product of ORs",
+    "     cover several terms at once. At term width 2 that is exactly C4-FREENESS (every biclique",
+    "     below the function is then a star); at width >= 3 it follows from the terms pairwise",
+    "     sharing at most one variable, which is also what stops two terms sharing an internal",
+    "     sub-product. This tool prints both counts and withholds the floor without them.",
     "  2. This is NOT a licence to cite PEqualNP.MetaComplexity.L204, whose hypotheses are",
     "     girth >= 7 and degree->=3 vertices at least 7 apart. The floor is a number to put in a",
     "     hypothesis, not a theorem to cite.",
@@ -583,6 +1013,12 @@ CAUTIONS: Final = (
     "     bound. And star-cover optimality itself rests on the star normal form theorem, which is",
     "     our own merged reduction R_meta_5691_3 whose hypotheses are not yet proved. So every",
     "     verdict below is strong structural evidence and NEVER a proof.",
+    "  4. WIDTH >= 3 IS WEAKER STILL. At width 2 the cover SHAPE has at least that normal form",
+    "     argument behind it; at width 3 and up we have proved nothing about the shape at all. Its",
+    "     tightness was checked only in small sub-cases by exact synthesis (3 lines pairwise meeting:",
+    "     7 optimal, one gate below UNSAT; 4 lines on 6 points: 9 optimal; the 3-line pencil of",
+    "     GQ(2,2): 6 optimal), and the full systems did not return. Treat a width >= 3 verdict as a",
+    "     reason to look harder before dispatching, not as a reason to call a step false.",
 )
 
 
@@ -595,7 +1031,7 @@ class Verdict:
 
 
 def verdict_of(
-    counted: Counted,
+    counted: FloorSource,
     bound: tuple[int, str] | None,
     sides: SideConditions,
     model: CostModel,
@@ -611,13 +1047,7 @@ def verdict_of(
     """
     base = counted.floor_for(model.kind)
     if base is None:
-        if model.kind == "unknown":
-            why = "the cost model is not recognised, so the posted number may not count gates at all"
-        elif counted.c4_pairs:
-            why = "graph is not C4-free"
-        else:
-            why = f"tau {counted.tau_how}"
-        return Verdict("NO FLOOR APPLIES", why, None, bound[0] if bound else None)
+        return Verdict("NO FLOOR APPLIES", counted.no_floor_reason(model.kind), None, bound[0] if bound else None)
     if bound is None:
         return Verdict("NO FLOOR APPLIES", "no posted gate bound found in the statement", base, None)
     eff = base + sides.extra_gates
@@ -626,6 +1056,49 @@ def verdict_of(
         return Verdict(
             "NO FLOOR APPLIES",
             f"the statement negates a {negated} claim, which the floor does not translate into",
+            eff,
+            posted,
+        )
+    if negated == "lower-bound":
+        #: The claim is "every circuit needs at least `posted` gates", so the comparison runs
+        #: the other way: a cover BELOW the threshold is a witness against it.
+        if eff >= posted:
+            detail = (
+                f"the cheapest cover costs {eff} >= the claimed {posted}, so the claim is plausible"
+                " - a target, though the Lean proof is a lower bound and not a witness"
+            )
+            tag = "FLOOR SUPPORTS THE CLAIM"
+        else:
+            detail = (
+                f"a {counted.cover_label()} of {eff} gates is BELOW the claimed minimum {posted}, so the"
+                " claim is likely FALSE - and the cover is the explicit counterexample"
+            )
+            tag = "STAR COVER REFUTES IT"
+        if not model.monotone:
+            detail += " [model admits NOT, so this is evidence only]"
+        detail += counted.evidence_note()
+        return Verdict(tag, detail, eff, posted)
+    if negated == "universal-false":
+        #: `for all C, ... size <= N ... -> False`. The floor makes the size hypothesis
+        #: UNSATISFIABLE when it exceeds N, which proves the claim whatever the further
+        #: hypotheses are. When the cover fits the budget the hypothesis is satisfiable, and
+        #: those further hypotheses - which this tool does not cost - decide the step, so no
+        #: verdict is given rather than a wrong-signed one.
+        if posted < eff:
+            detail = (
+                f"the floor is {eff} > posted {posted}, so no circuit of at most {posted} gates computes"
+                " the function at all: the size hypothesis is unsatisfiable and the claim holds whatever"
+                " its further hypotheses say - a target, proved by a lower bound and not by a witness"
+            )
+            if not model.monotone:
+                detail += " [model admits NOT, so this is evidence only]"
+            detail += counted.evidence_note()
+            return Verdict("FLOOR SUPPORTS THE NEGATION", detail, eff, posted)
+        return Verdict(
+            "NO FLOOR APPLIES",
+            f"the statement is an impossibility claim in universal form and a {counted.cover_label()} of"
+            f" {eff} gates fits the posted {posted}, so its size hypothesis is satisfiable and the step"
+            " turns on the further hypotheses this tool does not cost",
             eff,
             posted,
         )
@@ -639,11 +1112,12 @@ def verdict_of(
         else:
             tag = "STAR COVER REFUTES IT"
             detail = (
-                f"a star cover of {eff} gates is at most the posted {posted}, so such a circuit DOES"
-                " exist and the negation is likely FALSE - and the cover is the explicit counterexample"
+                f"a {counted.cover_label()} of {eff} gates is at most the posted {posted}, so such a circuit"
+                " DOES exist and the negation is likely FALSE - and the cover is the explicit counterexample"
             )
         if not model.monotone:
             detail += " [model admits NOT, so this is evidence only]"
+        detail += counted.evidence_note()
         return Verdict(tag, detail, eff, posted)
     if posted < eff:
         tag, detail = "BELOW FLOOR", f"slack {eff - posted}; do not dispatch, the statement is likely false"
@@ -655,15 +1129,25 @@ def verdict_of(
                 " not AT FLOOR overall",
             )
         else:
-            tag, detail = "AT FLOOR", "exactly constructible by a star cover - the best kind of target"
+            tag, detail = "AT FLOOR", f"exactly constructible by a {counted.cover_label()} - the best kind of target"
     else:
         tag, detail = "ABOVE FLOOR", f"{posted - eff} gate(s) of room; genuinely open, dispatch"
     if not model.monotone:
         detail += " [model admits NOT, so this is evidence only]"
+    detail += counted.evidence_note()
     return Verdict(tag, detail, eff, posted)
 
 
-def analyse(gid: str) -> tuple[Verdict, Counted | None, SideConditions, CostModel, Meta, str] | None:
+def analyse(gid: str) -> tuple[Verdict, FloorSource | None, SideConditions, CostModel, Meta, str] | None:
+    """Decode one step and compare its posted bound with the cover floor.
+
+    WIDTH DECIDES THE PATH, and it is read before anything else. A DNF every term of which
+    is a pair is a graph and goes down the original path unchanged - that is what keeps the
+    graph verdicts exactly as they were. A DNF with any wider term goes down the term-system
+    path instead, because the pair decoders would otherwise read the first two reads of each
+    wide term and invent a graph (see READ_RE). A statement with no DNF at all is unaffected:
+    number lists, vertex-pair lists and the modular forms are still tried in order.
+    """
     path = steps_dir() / f"{gid}.json"
     if not path.is_file():
         return None
@@ -672,10 +1156,23 @@ def analyse(gid: str) -> tuple[Verdict, Counted | None, SideConditions, CostMode
     info = meta_of(rec)
     gap = rec.get("gap")
     stmt = str(gap.get("statement", "")) if isinstance(gap, dict) else ""
-    rel = relation(stmt)
     model = model_of(stmt)
     bound = posted_bound(stmt)
     negated = negation_shape(stmt)
+    claim = minsize_claim(stmt)
+    if claim is not None:
+        #: A min-size statement posts its budget as a bound variable, so the claim shape -
+        #: not `posted_bound` and not the blanket forall-negation guard - decides both the
+        #: number and which way the comparison runs.
+        negated = "" if claim[0] == "find" else "lower-bound"
+        bound = (claim[1], claim[2])
+
+    tsys = term_system(stmt)
+    rel = relation(stmt) if tsys is None or tsys.width == 2 else None
+    if rel is None and tsys is not None:
+        tcounted = count_terms(tsys)
+        sides = SideConditions()
+        return verdict_of(tcounted, bound, sides, model, negated), tcounted, sides, model, info, stmt
     if rel is None:
         return (
             Verdict(
@@ -692,6 +1189,29 @@ def analyse(gid: str) -> tuple[Verdict, Counted | None, SideConditions, CostMode
     return verdict_of(counted, bound, sides, model, negated), counted, sides, model, info, stmt
 
 
+def report_terms(counted: TermCounted, verdict: Verdict, model: CostModel) -> int:
+    """The body of a report for a term system of any width (the width-2 case keeps its own)."""
+    sysm = counted.sys
+    say(f"  RELATION: {sysm.source}")
+    if sysm.absorbed:
+        say(f"            {sysm.absorbed} term(s) dropped as absorbed (a term containing another)")
+    shape = ", ".join(f"{c} of width {w}" for w, c in sorted(sysm.widths.items()))
+    say(f"  TERMS: m = {len(sysm.terms)} ({shape}) over {len(sysm.points)} of {sysm.n} inputs")
+    say(f"         largest overlap of two terms: {counted.pair_max} variable(s)")
+    need = "C4-freeness" if sysm.width == 2 else "a partial linear space (overlap <= 1)"
+    say(f"         2x2 boxes: {counted.boxes} (box-free: {counted.boxes == 0}); this width needs {need}")
+    say(f"  COVER: k = {counted.k} by {counted.k_how}")
+    base = counted.floor_for(model.kind)
+    if base is not None:
+        say(f"  FLOOR: {counted.formula_for(model.kind)} = {base}")
+    say(f"  POSTED: {verdict.posted if verdict.posted is not None else 'nothing found'}")
+    say(f"  VERDICT: {verdict.tag} - {verdict.detail}")
+    say("")
+    for line in CAUTIONS:
+        say(line)
+    return 0
+
+
 def report(gid: str) -> int:
     got = analyse(gid)
     if got is None:
@@ -703,15 +1223,25 @@ def report(gid: str) -> int:
     say(f"  MODEL: {model.desc}{hint}")
     if model.kind == "ands":
         say("         size counts AND gates only, so the floor is tau, NOT |E| + tau - 1")
-    shape = negation_shape(stmt)
+    claim = minsize_claim(stmt)
+    shape = "" if claim is not None else negation_shape(stmt)
+    if claim is not None:
+        say(f"  SHAPE: {claim[2]}")
+        if claim[0] == "lower-bound":
+            say("         - a lower-bound claim, so a cover BELOW the threshold refutes it")
     if shape == "exists":
         say("  SHAPE: NEGATED existential (no circuit this small computes f) - the floor's meaning INVERTS")
+    elif shape == "universal-false":
+        say("  SHAPE: impossibility claim in UNIVERSAL form (for all C, ... size <= N ... -> False)")
+        say("         - a negated existential with no leading negation, so the floor's meaning INVERTS")
     elif shape:
         say(f"  SHAPE: negation of a {shape} claim - the floor does NOT translate into it")
     if counted is None:
         say("  RELATION: none decoded - no DNF of `x i && x j`, no two-bit number list, no modular form")
         say(f"  VERDICT: {verdict.tag} - {verdict.detail}")
         return 0
+    if isinstance(counted, TermCounted):
+        return report_terms(counted, verdict, model)
 
     g = counted.graph
     say(f"  RELATION: {counted.rel.source}")
@@ -744,7 +1274,9 @@ def report(gid: str) -> int:
             say(f"    - {line} (NOT costed by this tool)")
         if sides.extra_gates:
             say(f"    => effective floor {base} + {sides.extra_gates} = {verdict.effective}")
-    bound = posted_bound(stmt)
+    #: A min-size statement has no literal bound to quote, so the claim reading supplies it.
+    claim_bound = minsize_claim(stmt)
+    bound = (claim_bound[1], claim_bound[2]) if claim_bound is not None else posted_bound(stmt)
     say(f"  POSTED: {bound[1] if bound else 'nothing found'}")
     say(f"  VERDICT: {verdict.tag} - {verdict.detail}")
     say("")
@@ -756,6 +1288,7 @@ def report(gid: str) -> int:
 RANK: Final = {
     "STAR COVER REFUTES IT": 0,
     "FLOOR SUPPORTS THE NEGATION": 1,
+    "FLOOR SUPPORTS THE CLAIM": 1,
     "AT FLOOR": 2,
     "AT FLOOR (function only)": 3,
     "ABOVE FLOOR": 4,
@@ -773,8 +1306,8 @@ def table(csv: bool) -> int:
         verdict, counted, sides, model, info, _stmt = got
         pts = info.points
         notes: list[str] = []
-        if counted is not None and counted.c4_pairs:
-            notes.append(f"not C4-free ({counted.c4_pairs} pairs)")
+        if counted is not None and counted.structural_note():
+            notes.append(counted.structural_note())
         if sides.extra_gates:
             notes.append(f"+{sides.extra_gates} side condition")
         elif sides.any:
