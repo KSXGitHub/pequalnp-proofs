@@ -65,6 +65,18 @@ ENGINE: Final = pathlib.Path(
 )
 
 
+def is_unsat(verdict: str) -> bool:
+    """True only for an exact UNSAT. Everything else is a non-result.
+
+    The guard this replaces compared against the string "NORETURN" while the
+    engine prints "DID NOT RETURN" on a timeout, so a timeout slipped past it
+    and the tool recommended releasing a row as false on a search that never
+    finished. Anything that is not exactly UNSAT - a timeout, an empty string, a
+    lowercase spelling, a crash message - must read as "we do not know".
+    """
+    return verdict.strip() == "UNSAT"
+
+
 def row_of(step_id: str) -> tuple[int, int, int, int] | None:
     """(mask, n, m, budget) read from the step's own statement, never typed by hand.
 
@@ -153,10 +165,18 @@ def main(argv: list[str]) -> int:
         )
         return 0
 
-    if verdict == "NORETURN":
+    # ONLY AN EXPLICIT UNSAT MAY PROCEED. This tested `verdict == "NORETURN"`,
+    # but `search` returns whatever the engine printed, and a timeout prints
+    # `RESULT: DID NOT RETURN`. So a timeout failed this check, fell through to
+    # the branch below, and the tool announced "The row is FALSE" on the
+    # strength of a search that never finished - the exact confusion every other
+    # part of this harness exists to prevent, in the tool that recommends a
+    # release. Seen live on L-meta-23111 at nine gates.
+    if not is_unsat(verdict):
         sys.stdout.write(
-            "  the search DID NOT RETURN. That is not an UNSAT and must not be reported as one.\n"
-            "  Give it longer, or leave the row alone and say the budget was not reached.\n"
+            f"  the search returned {verdict!r}, which is NOT an UNSAT and must never be\n"
+            "  reported as one. Give it longer, or leave the row alone and say plainly that\n"
+            "  the budget was not reached. Do NOT release it as false.\n"
         )
         return 1
 
