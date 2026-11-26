@@ -105,3 +105,53 @@ pairs) is 4x faster than the column-order break on the crown and 6.6x on thresho
 Tools and the soundness arguments for each normal form and symmetry break:
 $P/p18264/README.md, with mono.py, grid.py, edges.py, ornet.py, anneal.py, mklean.py
 ($P = /tmp/claude-0/-home-user-pequalnp-proofs/731ccd8c-0494-56c8-b77c-6e2443ae238b/scratchpad/pnp)
+
+## The better published construction does NOT reach 28 at m = 12 - checked, not assumed
+
+arXiv:2603.28954v2 (Krapivin, Przybocki, Subercaseaux, *Near-Optimal Encodings of Cardinality
+Constraints*) really does give a monotone T_2 circuit of 2m + sqrt(2m) + O(m^(1/3)) gates, and
+sqrt(2m) < 2*sqrt(m), so it beats Adleman asymptotically. IT DOES NOT BEAT 29 AT m = 12: the
+O(m^(1/3)) term swamps the gain at that size.
+
+Read as a circuit its structure is the EDGE FRAMEWORK plus a part layer and a threshold-3 on top -
+take a complete p-partite graph with q per part, put each variable on a distinct edge, then
+
+    v_i = OR of the variables at vertex i                      2m - V gates
+    z_k = OR of the v_i in part k                              V - p  gates
+    T_2(x) = Thr3(z_1..z_p) OR (OR over k of Thr2 of the v_i in part k)
+
+At p = 2 the Thr3 term is constantly false, the z's are never built, and it degenerates to
+Adleman's grid - which is why the two agree there.
+
+ENUMERATING EVERY MEMBER at m = 12 (all part-size multisets with V <= 2m = 24, dropping the circular
+star member (m,1) whose sub-problem is T_2 of 12 again):
+
+| gates | p | part sizes |
+|---|---|---|
+| **29** | 2 | (3,4) - Adleman's grid |
+| **29** | 3 | (2,2,2) - K(2,2,2) |
+| 31 | 2, 4, 5, 6 | (2,6), (4,4), (1,1,2,2), (1,1,1,1,2), (1,1,1,1,1,1) |
+
+FAMILY MINIMUM AT m = 12 IS 29, NOT 28 - and that is a real minimum rather than an artefact of
+generous sub-costs: re-running the same enumeration with rigorous LOWER bounds on every unmeasured
+sub-circuit still bottoms out at 29. Those lower bounds come from a restriction argument - setting a
+variable to 0 turns Thr_k of n+1 into Thr_k of n, that variable must be read, and every gate reading
+it folds away, giving A2(n) >= n + 5 and T3(p) >= p + 5 past the measured range.
+The paper's own parameter choice at n = 12 (p = ceil(n^(1/6)) + 1 = 3, q = ceil(sqrt 2 * n^(1/3)) = 4,
+i.e. K(4,4,4)) costs considerably MORE than 29.
+
+New exact values measured to close those routes, all swept upward:
+* C_mon(Thr3 on 4) = 7 (UNSAT at 6) - matching the duality prediction from Thr2 on 4 = 7.
+* C_mon(Thr3 on 5) = 10 (UNSAT at 7, 8, 9). The p = 5 route needs <= 7, so it is CLOSED.
+* C_mon(Thr3 on 6) >= 11 (UNSAT at 10 in 271.6 s, and independently from T3(6) >= T3(5) + 1), and
+  <= 15 by a construction verified on all 35 rows. The p = 6 route needs <= 10, so it is CLOSED.
+* Generally the all-singleton parts at p need T3(p) <= p + 4, while T3(p) - p is non-decreasing and
+  already 5 at p = 5 - so EVERY p >= 5 is closed.
+
+A SECOND, STRUCTURALLY DIFFERENT 41-GATE CROWN WITNESS came out of this: the p = 3 member K(2,2,2),
+29 gates re-simulated on all 78 weight-<=2 rows and 41 as a crown circuit re-simulated on all 144
+one-a-side rows by both independent routines (`crown41_multipartite.json` in $P/p18264).
+
+THE ONLY LIVE ROUTE TO 28 is the paper's p = 6 and p = 7 instantiations WITH DON'T-CARES - using only
+12 of the C(V,2) edges rather than all of them, which is strictly more general than the paper's own
+top circuit. Those two searches are running under their own CPU caps.
