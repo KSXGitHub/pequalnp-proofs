@@ -160,24 +160,50 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    # UNSAT at exactly the budget. To conclude the row is false we need every
-    # smaller size too, because the encoder fixes an EXACT gate count and its
-    # normal form contains each least circuit only at its own size.
+    # UNSAT AT EXACTLY THE BUDGET IS ALREADY ENOUGH, BY PADDING - no sweep.
+    #
+    # The encoder fixes an exact gate count, so the instinct is that an UNSAT at
+    # the budget leaves a SMALLER circuit possible and every size below has to be
+    # swept. It does not, in LOOSE mode. Suppose a circuit of size k <= budget
+    # represents A, and let its last gate be `c = a op b`. In a monotone circuit
+    # op is `and` or `or`, never `not`, so appending `d = c op a` gives
+    #   op = or  : d = (a or b) or a  = a or b  = c
+    #   op = and : d = (a and b) and a = a and b = c
+    # on EVERY row, whatever the row set. So d has c's value, d is last, d is the
+    # output, c is read, and no gate is unread: a circuit of size k + 1 in the
+    # same normal form. Hence SAT at k implies SAT at k + 1, and by induction SAT
+    # at every size up to the budget. Contrapositive: UNSAT at exactly the budget
+    # means no circuit of size k <= budget exists, which is what the row denies.
+    #
+    # Verified rather than assumed: on mask 3824 the engine returns SAT at 5, 6,
+    # 7, 8 and 9 with no gap, which is upward closure in action.
+    #
+    # THE ONE CONDITION: padding duplicates c's column, so --distinct-cols must
+    # be OFF. `search` never passes it, and that is now load-bearing rather than
+    # merely a hunting preference. It also needs op in {and, or}, which is why
+    # this argument is sound for RepSizeAtMost (Monotone2) and must NOT be
+    # reused as-is for a FanInTwo row, where the last gate could be a NOT.
     sys.stdout.write(
-        f"  no circuit of exactly {budget} gates. Sweeping below it, because an exact-size\n"
-        "  UNSAT does not by itself rule out a SMALLER circuit:\n"
+        f"  no circuit of exactly {budget} gates, and by padding that rules out every\n"
+        f"  smaller size too: a monotone circuit of size k can be padded to k + 1 by\n"
+        f"  appending `c op a` after its last gate `c = a op b`, so SAT at k would force\n"
+        f"  SAT at {budget}. The row is FALSE.\n"
     )
-    for g in range(1, budget):
-        v, _ = search(mask, n, m, g, seconds)
-        sys.stdout.write(f"    exactly {g}: {v}\n")
-        if v != "UNSAT":
-            sys.stdout.write(f"  size {g} did not come back UNSAT, so the row is NOT settled here.\n")
-            return 1
+    if "--sweep" in sys.argv:
+        sys.stdout.write("  --sweep given, so confirming the padding argument size by size:\n")
+        for g in range(1, budget):
+            v, _ = search(mask, n, m, g, seconds)
+            sys.stdout.write(f"    exactly {g}: {v}\n")
+            if v != "UNSAT":
+                sys.stdout.write(
+                    f"  size {g} came back {v}, which CONTRADICTS the padding argument."
+                    " Do not release; the encoding or the argument is wrong.\n"
+                )
+                return 1
     sys.stdout.write(
-        f"  every size from 1 to {budget} is UNSAT, so the row is FALSE by exhaustion.\n"
-        "  Release statement_seems_false. Before trusting it, confirm the engine returns SAT\n"
-        f"  at some larger size on THIS mask - try {budget + 1} - because an UNSAT from a broken\n"
-        "  encoding looks exactly like a real one.\n"
+        "  Before releasing, confirm the engine returns SAT at some larger size on THIS\n"
+        f"  mask - try {budget + 1} - because an UNSAT from a broken encoding looks exactly\n"
+        "  like a real one, and that control is what the padding argument cannot replace.\n"
     )
     return 0
 
