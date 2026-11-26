@@ -244,3 +244,24 @@ class MismatchAndCutSlices(unittest.TestCase):
     def test_a_standalone_claim_keeps_its_verdict(self) -> None:
         v = floor.Verdict("FLOOR SUPPORTS THE NEGATION", "the floor is 125 > posted 124", 125, 124)
         self.assertEqual(floor.cut_substep(v, {"title": "No circuit of at most 124 gates"}).tag, v.tag)
+
+
+class PartialSpecification(unittest.TestCase):
+    """A partial row spec kills the floor, and this was measured rather than argued.
+
+    `Represents` pins only the one-hot-per-side rows, so a circuit is unconstrained off that
+    set and the cover count - which assumes every input is constrained - bounds nothing. The
+    crown optimum is 4n-5 (3, 7, 11, 15 for n = 2..5, each simulated on every row), while the
+    cover floor is n^2-1: already beaten at n = 3, where the crown is still C4-free. So the
+    screen must refuse a number here, and refuse it for this reason and not for a side
+    condition.
+    """
+
+    def test_guard_fires_on_represents(self) -> None:
+        self.assertIsNotNone(floor.PARTIAL_SPEC_RE.search("theorem upper : RepSizeAtMost matrix 7"))
+        self.assertIsNotNone(floor.PARTIAL_SPEC_RE.search("... Represents n C ..."))
+        self.assertIsNotNone(floor.PARTIAL_SPEC_RE.search("... oneEach u v ..."))
+
+    def test_guard_silent_on_a_full_specification(self) -> None:
+        stmt = "PEqualNP.MetaComplexity.Monotone2 x1 and x1.size <= (124 : N) and circuitFun 42 x1 x = true"
+        self.assertIsNone(floor.PARTIAL_SPEC_RE.search(stmt))

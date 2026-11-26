@@ -141,6 +141,9 @@ NEG: Final = chr(0x00AC)
 EXISTS: Final = chr(0x2203)
 FORALL: Final = chr(0x2200)
 NEG_RE: Final = re.compile(rf"^\s*{NEG}\s*\(")
+#: `Represents` and its one-hot row set: a PARTIAL specification, which the cover count
+#: cannot bound. See the guard in the loader for the measured reason.
+PARTIAL_SPEC_RE: Final = re.compile(r"\bRepresents\b|\boneEach\b|\bRepSizeAtMost\b")
 #: What the negation is OF decides whether the floor translates. Negating an EXISTENTIAL
 #: claim ("some circuit of at most N gates computes f", which is what `HasCircuitSize` and
 #: `RepSizeAtMost` unfold to) inverts cleanly. Negating a UNIVERSAL one does NOT: many steps
@@ -1239,6 +1242,36 @@ def analyse(gid: str) -> tuple[Verdict, FloorSource | None, SideConditions, Cost
         #: number and which way the comparison runs.
         negated = "" if claim[0] == "find" else "lower-bound"
         bound = (claim[1], claim[2])
+
+    if PARTIAL_SPEC_RE.search(stmt) is not None:
+        #: A PARTIAL ROW SPECIFICATION KILLS THE FLOOR OUTRIGHT, and this was measured, not
+        #: reasoned: `Represents` pins only the n^2 one-hot-per-side rows and asks nothing
+        #: anywhere else, so a circuit may do as it likes off that set - and the optimum
+        #: exploits exactly that freedom. For the crown graph the trick is `d_u = x_u or y_u`
+        #: then a threshold-2 ladder over the `d`s, giving 4n-5 gates: 3, 7, 11, 15 for
+        #: n = 2..5, simulated on every row and matching the desk's own numbers. The star
+        #: cover floor is n^2-1, so the floor is ALREADY BEATEN AT n = 3 (7 against 8) where
+        #: the crown is still C4-free. So the floor governs no n at all here, and its failure
+        #: has nothing to do with the side conditions this tool checks.
+        #:
+        #: The cover count assumes the circuit must compute the function on EVERY input. Read
+        #: the spec before trusting any number below.
+        return (
+            Verdict(
+                "NO FLOOR APPLIES",
+                "the statement pins only a PARTIAL set of rows (Represents / one-hot rows), not the"
+                " whole function, so a circuit is free off that set and the cover count - which"
+                " assumes every input is constrained - is not a bound. Measured: the crown optimum"
+                " is 4n-5, which beats the cover floor n^2-1 from n = 3, while still C4-free",
+                None,
+                bound[0] if bound else None,
+            ),
+            None,
+            SideConditions(),
+            model,
+            info,
+            stmt,
+        )
 
     tsys = term_system(stmt)
     rel = relation(stmt) if tsys is None or tsys.width == 2 else None
