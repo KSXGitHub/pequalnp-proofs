@@ -62,6 +62,40 @@ conditional proof was VACUOUS, and cleanliness has to be used in normal-form sha
 size at most s is clean"), never as a property of every circuit. Kept because a refutation of one's
 own earlier claim is the easiest thing to lose and the most expensive to rediscover.
 
+## L_meta_zzstar.lean - 59 KB, CHECK_OK 10 s, `import PEqualNP.Defs` only
+
+Built on zzrepair, and it takes a posted row - L-meta-5377, "on graphs with no triangle and no
+4-cycle, some least AND/OR circuit for the edge function has every AND gate owning a star of edges"
+- to within ONE named lemma. The wrapper at `lean/PEqualNP/Outside/L_meta_5377.lean` carries the
+posted statement verbatim with 22 helpers in its namespace, Lean reports no errors, and lint's only
+complaint is the single `sorry` where that lemma goes.
+
+* `clean_owns_star` - for `Monotone2 C` and `NoFourCycle G`, a gate BELOW f_G either owns no edge of
+  G or has a vertex on every edge it owns. No minimality, no `ReadsBack`, no triangle-freeness. This
+  settles the CLEAN half of the row outright.
+* `descend` - a gate owning `uv` has no AND gate of its cone true at the pair input, so the descent
+  from each wire it reads passes only through OR gates and ends at an input, necessarily u or v.
+* `owns_splits` - a clean AND owning an edge reads EXACTLY two earlier wires (fan-in 0 and 1 are
+  impossible: either would make the gate true at a single-vertex input, where f_G is false), with
+  the two endpoints one in each operand's `Lset`.
+* `star_of_pairwise_meet`, `pairInput_comm`, `owns_comm`, and cone transitivity.
+* `step_of_junkOwnsNoDisjointPair` - the posted statement, verbatim, FROM the missing lemma, which
+  is what proves that lemma is the only hole.
+
+AND A SMALL IMPOSSIBILITY RESULT, which is the part worth keeping even if the row never closes:
+`pathG` (the path 0-1-2-3) with a 7-gate circuit whose gate 1 is `x1 or x2` wired as an AND
+satisfies triangle-freeness, `NoFourCycle`, `Monotone2`, computes f_G, AND satisfies the row's
+entire three-way per-gate disjunction - yet FAILS the star at gate 1. So the row cannot be derived
+from its own hypotheses; the force has to come from `IsMinimalMonoCircuit`. Gate 1 there is junk, so
+`clean_and_cross` has nothing to say about its operands, which is exactly why the clean half goes
+through and the junk half does not.
+
+THE MISSING LEMMA, named: `junkOwnsNoDisjointPair` - in a least monotone circuit for a
+triangle-free, C4-free graph, a gate owning two DISJOINT edges cannot be junk. It is STRICTLY WEAKER
+than junk-freeness, so it is NOT the `repairMany` equivalence in disguise: a junk AND may survive as
+long as every edge pair it is true at is owned deeper, and `(x0 or x1) and (x2 or x3)` on four
+pairwise non-adjacent vertices is junk while owning no edge at all.
+
 ## V_meta_zzdry3__k6.lean - 147 KB, CHECK_OK 11 s
 
 A COMPLETE proof, and the only artifact here with nothing left open: the exact optimum of a 4-input
