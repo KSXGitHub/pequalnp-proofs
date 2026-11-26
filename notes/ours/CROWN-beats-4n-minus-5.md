@@ -1,5 +1,20 @@
 # The crown needs at most 3n + 2*sqrt(n) + O(n^(1/4)) gates, not 4n - 5
 
+## ATTRIBUTION, ADDED AFTER A LITERATURE CHECK - THE CONSTRUCTION IS NOT OURS
+
+The threshold-2 construction below is ADLEMAN'S, which gives a monotone circuit for T_2 on m
+variables with 2m + 2*sqrt(m) + O(m^(1/4)) gates - exactly the bound the recurrence here produces.
+Sergeev (2021) proves the monotone complexity of T_2 is 2m + Theta(sqrt(m)), with a lower bound of
+2m + sqrt((2m-4)/3) - 19/6; at m = 12 that permits anything from 24 upward, so it does NOT settle
+the row below. We derived the recurrence independently without knowing the literature, and the first
+version of this note read as though the construction were new. It is not. WHAT IS OURS: the
+reduction of the crown to threshold-2 over the `d` wires, the Lean-checked 41-gate witness at
+n = 12, the exact small values (L(4) = 11 twice over, A(5) = 10), and the measured fact that
+L(n) = n + A(n) wherever both are known.
+*** AND THERE IS A BETTER PUBLISHED CONSTRUCTION WE HAVE NOT IMPLEMENTED: 2m + sqrt(2m) + O(m^(1/3))
+(arXiv 2603.28954). At m = 12 that is about 24 + 4.9 + O(12^(1/3)) against our 29, and A(12) <= 28 is
+EXACTLY what makes the posted 40-gate row TRUE. That is the live lead on this row. ***
+
 The crown on n a side (u joined to v exactly when u /= v) represented on the one-a-side promise.
 Our earlier construction was 4n - 5, verified on every promise row for n = 2..9, and we had been
 treating it as the truth. IT IS NOT OPTIMAL FOR ANY n >= 9.
