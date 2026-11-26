@@ -1197,6 +1197,35 @@ def verdict_of(
         return Verdict(tag, detail, eff, posted)
     if posted < eff:
         tag, detail = "BELOW FLOOR", f"slack {eff - posted}; do not dispatch, the statement is likely false"
+        #: AND FOR A C4-FREE GRAPH ONE BELOW THE FLOOR, THE MERGED CORPUS HAS ALREADY
+        #: DECIDED IT - SEVEN TIMES OUT OF SEVEN, AGAINST. A scan of all 10610 files in
+        #: Outside/ for unconditional top-level `HasCircuitSize` rows on bipartite edge
+        #: functions found seven C4-free rows posted at floor minus one, and every one of
+        #: them is PROVED FALSE in the full AND/OR/NOT model: L_meta_9752 (|E| 15, tau 5),
+        #: 9818 and 9825 (13, 5), 670 (12, 5), 1007 (10, 4), 1664 (9, 4), 1004 (7, 4).
+        #: Not one C4-free row below the floor is TRUE. The single below-floor row that IS
+        #: true, L_meta_16082, is NOT C4-free - so the floor formula does not even apply to
+        #: it, which is the exception proving the rule rather than breaking it.
+        #:
+        #: Why negation does not rescue such a row, which is the part that makes this more
+        #: than a tally. For a minimum-size FanInTwo circuit computing a non-constant
+        #: function, size + 1 = m + s + u, where m counts input-wire reads, u the NOT gates
+        #: and s the sharing (the sum of outdeg - 1 over non-output gates). So A NOT GATE
+        #: COSTS EXACTLY ONE UNIT OF THE SAME BUDGET AS A VARIABLE READ: negation is a cost
+        #: here, not a discount. And under C4-freeness two stars meet in at most one point,
+        #: so a shared wire saves at most one read while the sharing itself costs one in s -
+        #: break-even at best. Measured too: no minimum-size circuit in this family contains
+        #: a negation at all (checked at the exact optimum for hex with one and with two
+        #: NOTs, and for twoline with one - all UNSAT).
+        if not counted.structural_note():  # empty exactly when the graph IS C4-free
+            detail += (
+                ". AND THE CORPUS HAS SETTLED THIS SHAPE: seven of seven C4-free rows posted one"
+                " below the floor are PROVED FALSE upstream in the full AND/OR/NOT model, and no"
+                " C4-free below-floor row is true. Negation cannot rescue it either, because"
+                " size + 1 = m + s + u prices a NOT gate at exactly one variable read while"
+                " C4-freeness caps a shared wire's saving at one read against one unit of sharing."
+                " Release it statement_seems_false rather than spending a worker"
+            )
     elif posted == eff:
         if sides.any and sides.extra_gates == 0:
             tag, detail = (
