@@ -111,6 +111,14 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--budget", type=int)
     ap.add_argument("--desk", type=str, default="", help="the sketch's gate list, op:a,b;...")
     ap.add_argument("--seconds", type=int, default=600)
+    ap.add_argument(
+        "--tight",
+        action="store_true",
+        help="symmetry breaking and distinct columns ON. Hunting is LOOSE because tight "
+        "breaking makes a witness much harder to find, but it makes an UNSAT reachable - "
+        "so a loose TIMEOUT is the moment to try this. Padding is not used here either "
+        "way, so the sweep below the budget still runs explicitly.",
+    )
     a = ap.parse_args(argv)
     if a.step:
         a.mask, a.n, a.budget, spec = from_step(a.step)
@@ -163,8 +171,8 @@ def main(argv: list[str]) -> int:
     saw_control = not control_size
     win: int | None = None
     for g in order:
-        enc = E.build(a.n, g, rs, False, False, False)  # loose: hunting
-        path = WORK / f"m{a.mask}_n{a.n}_s{g}.cnf"
+        enc = E.build(a.n, g, rs, a.tight, a.tight, False)
+        path = WORK / f"m{a.mask}_n{a.n}_s{g}{chr(95)+chr(116) if a.tight else chr(0)*0}.cnf"
         enc.cnf.write(path)
         status, assign, dt = E.run_solver(E.find_solver(), path, a.seconds)
         tag = "  (control)" if g == control_size and not saw_control else ""
