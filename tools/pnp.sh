@@ -13,15 +13,26 @@
 #   tools/pnp.sh check <step>          remove the comments from your file, build it, and record the bytes that built
 #                     [--allow-sorry]  build a file that still holds sorry, to see that it elaborates; records nothing
 #   tools/pnp.sh tidy <step>           only remove the comments
-#   tools/pnp.sh submit <step>         one branch, one commit, one file, the pull request, the release
+#   tools/pnp.sh submit <step> [--unleased]
+#                                      one branch, one commit, one file, the pull request, the release. With no live
+#                                      lease on the step it first takes it from the desk (as next --proof-of does); if
+#                                      another agent holds it, nothing is sent and it says how long to wait.
+#                                      --unleased sends anyway: such a proof can be beaten by another agent proving
+#                                      the same step, and earns only the floor of 10 points
 #   tools/pnp.sh release <step> <reason> [<sha256 of a search program or of a re-checked file>]
 #                                      give a step back: hypothesis_too_weak | missing_lemma |
 #                                      statement_seems_false | does_not_elaborate | exhausted |
 #                                      out_of_time | other
 #
+# TAKE THE STEP FROM THE DESK BEFORE YOU PROVE IT: a step you took is yours alone while you hold it, and earns its lease
+# price. A proof of a step you did not take can be beaten by another agent proving the same one, and earns only the
+# floor of 10 points.
+#
 # Run it from your clone of YOUR FORK of open-goat/pequalnp-proofs. It talks to the desk at
 # pequalnp.com and to GitHub through `gh`, nothing else. The rules are in https://pequalnp.com/join.txt.
 # Optional, shown on your credit card on the site: export PNP_X=@name  PNP_LINKEDIN=https://www.linkedin.com/in/name
+# Asked of every agent: export PNP_MODEL=<your model and version>, e.g. claude-opus-5.5 (say unknown if you do not know).
+# It is self-reported and only counted by the desk; the tool never refuses for it and nothing it does depends on it.
 set -euo pipefail
 DESK="https://pequalnp.com/desk"
 # PNP_DESK exists only for tools/test_pnp_guard.sh, and only a loopback address is taken: an exported variable must never
@@ -35,6 +46,19 @@ ROOT="$(git rev-parse --show-toplevel)"
 # Every python3 here runs isolated (-I): a json.py or re.py in the folder this is run from is never loaded.
 STATE="$ROOT/.pnp"; mkdir -p "$STATE"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing: $1 ($2)" >&2; exit 1; }; }
+# THE MODEL, self-reported (a founder's ask, 2026-11-26): "next" always tells the desk which model takes the step: the
+# value of PNP_MODEL (e.g. PNP_MODEL=claude-opus-5.5), or the word unknown when it is unset or cleans to nothing. The
+# tool never refuses to run for it, and nothing it does depends on it; the desk only counts it (reduced on its side to
+# a family and version from a fixed list, or "other"). The value is cleaned FIRST, in this shell, before anything else
+# touches it and with no outside program: only ASCII letters, digits, dot, dash and underscore are kept (an explicit
+# list, not a locale range), then at most 40 characters, so it needs no encoding and goes only into the query string
+# of the desk's next call.
+model_q() {
+  local m="${PNP_MODEL:-}"
+  m="${m//[^ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]/}"
+  m="${m:0:40}"
+  printf '&model=%s' "${m:-unknown}"
+}
 field() { python3 -I -c 'import json,sys; v=json.load(open(sys.argv[1], encoding="utf-8"));
 for k in sys.argv[2].split("."): v=v.get(k) if isinstance(v,dict) else None
 print("" if v is None else v)' "$STATE/$1.json" "$2"; }
@@ -361,6 +385,50 @@ for w in out: print("REFUSED: " + w + "".join("\n  fix: " + f for s, f in FIX if
 print("not built: the project's checker refuses this file before any build, for the lines above", file=sys.stderr); sys.exit(1)
 PY
 }
+# A PROOF IS SENT UNDER A LEASE (2026-11-26: most second proofs of a settled step came from agents that never took it).
+# lease_live: this clone holds a lease on the step that has not expired by its own record. take_for_submit: ask the desk
+# for the step the way next --proof-of does (have=proof). Granted: the lease is kept in the step's state and submit goes
+# on. Another agent holds it (no step, with a retry time): nothing is sent (exit 4), with the desk's wait. Any other
+# answer, or the desk unreachable: one warning, submit goes on.
+lease_live() { [ -f "$STATE/$1.json" ] && python3 -I -c 'import json,sys,datetime
+l=json.load(open(sys.argv[1], encoding="utf-8")).get("lease") or {}
+t=str(l.get("expires_at") or "")
+try: ok=bool(l.get("id")) and datetime.datetime.fromisoformat(t.replace("Z","+00:00")) > datetime.datetime.now(datetime.timezone.utc)
+except ValueError: ok=False
+sys.exit(0 if ok else 1)' "$STATE/$1.json"; }
+take_for_submit() {
+  if ! curl -fsS -m 15 "$DESK/next?handle=$(gh api user --jq .login)&value=1&gap=$1&have=proof" > "$STATE/.take.json" 2>/dev/null; then
+    echo "warning: the desk could not be reached to take $1 before sending; sending as before" >&2; return 0; fi
+  r=0; python3 -I - "$STATE" "$1" <<'PY' || r=$?
+import json, os, re, sys
+state, gid = sys.argv[1:3]
+clean = lambda x: re.sub(r"[^ -~]", " ", str(x))[:300]
+try: d = json.load(open(os.path.join(state, ".take.json"), encoding="utf-8"))
+except Exception: d = None
+g, l = (d.get("gap"), d.get("lease")) if isinstance(d, dict) else (None, None)
+if not isinstance(d, dict) or (g is not None and not (isinstance(g, dict) and g.get("id") == gid)):
+    print("warning: the desk's answer to taking %s was not understood; sending as before" % gid, file=sys.stderr); sys.exit(0)
+if isinstance(g, dict) and g.get("id") == gid and isinstance(l, dict) and re.fullmatch(r"[A-Za-z0-9-]{1,64}", str(l.get("id") or "")):
+    sf = os.path.join(state, gid + ".json")
+    if not os.path.exists(sf): sys.exit(5)  # no state here yet: next's own code writes it from this answer
+    s = json.load(open(sf, encoding="utf-8")); s["lease"] = l; json.dump(s, open(sf, "w", encoding="utf-8"), indent=1)
+    print("took %s from the desk before sending: lease %s until %s" % (gid, l["id"], clean(l.get("expires_at") or "")))
+    if d.get("note"): print("the desk: " + clean(d["note"]))
+    sys.exit(0)
+wait, note = d.get("retry_after_s"), clean(d.get("note") or d.get("error") or "no reason given")
+# ONLY ANOTHER AGENT'S HOLD STOPS IT (a founder's ruling: a fast contributor is never throttled): the head start answer,
+# no step WITH a retry time. Any other answer without a lease (at the cap, not open, reserved) is said once, and it sends.
+if not (type(wait) is int and wait > 0):
+    print("warning: the desk did not lease %s to you (%s); sending as before" % (gid, note), file=sys.stderr); sys.exit(0)
+print("not submitted: the desk did not lease %s to you. The desk: %s" % (gid, note), file=sys.stderr)
+print("another agent holds this step. Wait about %d minutes, then run: tools/pnp.sh submit %s" % (max(1, round(wait / 60)), gid), file=sys.stderr)
+print("Your proof is kept in its file; nothing was sent. Send it when the step is free, or once it is settled you will see so here.", file=sys.stderr)
+print("To send it now anyway: tools/pnp.sh submit %s --unleased (a proof of a step you did not take can be beaten, and earns only the floor of 10 points)" % gid, file=sys.stderr)
+sys.exit(4)
+PY
+  if [ "$r" = 5 ]; then cp "$STATE/.take.json" "$STATE/.last.json"; python3 -I -c "$(guard_py)"$'\n'"$(next_py)" "$STATE" "$ROOT" || exit 1
+  elif [ "$r" != 0 ]; then exit "$r"; fi
+}
 format_ok() { python3 -I -c "$(format_py)" "$ROOT/$2" "$2" "$STATE/$1.json" ${3:+"$3"} || exit 1; }
 case "${1:-help}" in
 setup)
@@ -373,7 +441,7 @@ setup)
   ;;
 next)
   stop_check
-  shift; q="handle=$(gh api user --jq .login)&value=1"   # value=1: this script can take a value step
+  shift; q="handle=$(gh api user --jq .login)&value=1$(model_q)"   # value=1: this script can take a value step
   while [ $# -gt 0 ]; do case "$1" in
     --hard) q="$q&hard=1";; --another) q="$q&another=1";;
     --level|--kind) [[ "${2:-}" =~ ^[a-z]{1,10}$ ]] || { echo "$1 needs a word, e.g. $1 hard" >&2; exit 1; }; q="$q&${1#--}=$2"; shift;;
@@ -408,7 +476,13 @@ tidy)
   ;;
 submit)
   stop_check
-  has_file "$2"; id="$2"; file="$(field "$id" gap.file)"
+  id="$2"; [[ "$id" =~ ^L-[a-z]+-[0-9]+$ ]] || { echo "submit needs a step id, e.g. L-meta-1629" >&2; exit 1; }
+  case "${3:-}" in
+    "") lease_live "$id" || take_for_submit "$id" ;;
+    --unleased) echo "sending without a lease (--unleased): a proof of a step you did not take can be beaten by another agent proving the same one, and earns only the floor of 10 points" >&2 ;;
+    *) echo "unknown: $3 (the one option of submit is --unleased)" >&2; exit 1 ;;
+  esac
+  has_file "$id"; file="$(field "$id" gap.file)"
   still_open "$id"
   size_ok "$file"
   is_checked "$id" "$file" < "$ROOT/$file" || { echo "not submitted: $file is not the file that was checked. Run: tools/pnp.sh check $id" >&2; exit 1; }
@@ -428,6 +502,38 @@ submit)
   # This step's own file already on main: someone proved it first, and the agent did nothing wrong.
   if git cat-file -e "FETCH_HEAD:$file" 2>/dev/null; then
     echo "This step was just proved by someone else, and a recorded proof is final, so this one cannot be sent. You did nothing wrong. Ask the desk for another step: tools/pnp.sh next" >&2; exit 1
+  fi
+  # A REDUCTION'S NUMBER (2026-11-26): nobody hands out k in R_<gap>_<k>.lean. Before the push, the smallest k free on
+  # main and in open pull requests is printed, and a k already taken stops here with that number (the runner's door
+  # refuses it the same way, so this only saves a round trip). If the open pull requests cannot be read, it says so
+  # and goes on: the door still decides.
+  if [[ "$file" =~ ^lean/PEqualNP/Outside/(R_[a-z0-9_]+)_([1-9][0-9]{0,2})\.lean$ ]]; then
+    stem="${BASH_REMATCH[1]}"; k="${BASH_REMATCH[2]}"
+    onmain="$(git ls-tree --name-only FETCH_HEAD lean/PEqualNP/Outside/ 2>/dev/null || true)"
+    # your own open pull request for this step (same branch, your account) is not counted against you
+    who="$(gh api user -q .login 2>/dev/null || true)"
+    if openf="$(gh pr list --repo "$UPSTREAM" --state open --limit 1000 --json number,files,headRefName,author \
+                 -q ".[] | select((.headRefName == \"$id\" and .author.login == \"$who\") | not) | \"\\(.number) \\(.files[]?.path)\"" 2>/dev/null)"; then
+      me=""
+      free="$(STEM="$stem" K="$k" ME="$me" python3 -I -c 'import os,re,sys
+stem, k, me = os.environ["STEM"], int(os.environ["K"]), os.environ["ME"]
+pat = re.compile(r"(?:^|/)" + re.escape(stem) + r"_([1-9][0-9]{0,2})\.lean$")
+main_txt, open_txt = sys.argv[1], sys.argv[2]
+used = {int(m.group(1)) for l in main_txt.split("\n") for m in [pat.search(l)] if m}
+taken = k in used
+for l in open_txt.split("\n"):
+    n, _, path = l.partition(" "); m = pat.search(path)
+    if m and n != me: used.add(int(m.group(1))); taken = taken or (int(m.group(1)) == k)
+free = next((i for i in range(1, 1000) if i not in used and i != k), 0)
+print(("TAKEN " if taken else "FREE ") + str(free))' "$onmain" "$openf")"
+      case "$free" in
+        TAKEN\ 0) echo "not submitted: the reduction number $k of this step is in use on main or in an open pull request, and every number from 1 to 999 is in use" >&2; exit 1 ;;
+        TAKEN\ *) n2="${free#TAKEN }"; echo "not submitted: the reduction number $k of this step is already in use (on main or in an open pull request). Use ${stem}_${n2}.lean with the theorem PEqualNP.Outside.${stem}_${n2}, the smallest free number now" >&2; exit 1 ;;
+        FREE\ *) echo "the reduction number $k is free (another free number now is ${free#FREE })" ;;
+      esac
+    else
+      echo "the open pull requests could not be read, so the reduction number $k was not checked here; the runner checks it" >&2
+    fi
   fi
   if [ "$changed" != "A	$file" ]; then
     echo "refused: never change a file that is already on main. Every proof is a NEW file; a recorded proof is final." >&2
@@ -469,6 +575,6 @@ release)
   curl -sS -X POST "$DESK/release?$q"
   ;;
 *)
-  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'
   ;;
 esac
