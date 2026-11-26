@@ -88,8 +88,11 @@ def main() -> int:
         procs = [(seed, launch(seed)) for seed in pair]
         for seed, pr in procs:
             out = pr.communicate()[0] or ""
-            m = re.search(r"RESULT:\s+(\w+)", out)
-            verdict = m.group(1) if m else "NORETURN"
+            # `\w+` stopped at the first word, so a timeout logged as bare "DID"
+            # instead of "DID NOT RETURN" - which reads like a verdict rather
+            # than the absence of one, and that distinction is the whole point.
+            m = re.search(r"RESULT:\s+([A-Z][A-Z ]*[A-Z]|[A-Z]+)", out)
+            verdict = m.group(1).strip() if m else "NO RESULT LINE"
             say(f"seed {seed}: {verdict}")
             if verdict == "SAT":
                 # A WIN. Keep every line: the gate list is the submission.
