@@ -72,8 +72,22 @@ while [ "$(date +%s)" -lt "$end" ]; do
     # hand returned L-meta-2592, a low-numbered step from a different pool
     # entirely. Drawing from one pool was a self-inflicted narrowing, so this
     # asks each in turn.
-    if [ $((tick % 2)) -eq 0 ]; then flag="--another"; else flag="--hard"; fi
-    got="$("$S"/desk.sh next "$flag" 2>&1 | tail -1)"
+    # THREE POOLS, NOT TWO. The third is the one we have never drawn from: a
+    # VALUE step asks for the least k for which a template holds, so it always
+    # has a determinate answer - unlike the FIND rows the desk keeps posting one
+    # gate below the star-cover floor, which are unsatisfiable, and unlike the
+    # lower-bound rows that all bottom out in the unproved cleanliness lemma.
+    # `value=1` is sent by upstream's own tools/pnp.sh on EVERY call and ours
+    # never sent it at all, so for two windows the category was invisible to us.
+    # Supply is the binding constraint - every draw from the other two pools now
+    # returns a step we already hold - so a pool nobody else is asking for is
+    # worth more than a faster cadence on the two that are exhausted.
+    case $((tick % 3)) in
+      0) flag="--another" ;;
+      1) flag="--hard" ;;
+      *) flag="--value" ;;
+    esac
+    got="$("$S"/desk.sh next $flag 2>&1 | tail -1)"
     case "$got" in
       GOT\ *) echo "$(date -u +%H:%M:%SZ) $got via $flag (holding $((held + 1))/$MAXHOLD)" ;;
       NO_STEP*|DESK_REFUSED*) : ;;  # nothing free; stay quiet and ask again shortly
