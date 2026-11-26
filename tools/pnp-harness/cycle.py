@@ -143,7 +143,15 @@ def twolit_sweep(step_id: str) -> tuple[bool, str]:
     """(row is false by exhaustion, log tail)."""
     if not TWOLIT.is_file():
         return False, f"twolit engine not found at {TWOLIT}; set PNP_JOBS_DIR"
-    _rc, out = run([sys.executable, "-I", str(TWOLIT), "--step", step_id], 900)
+    # A PER-SIZE BUDGET SHORT ENOUGH THAT A ROUND FITS IN ONE CALL. twolit's own
+    # default is 600 seconds per size and it sweeps up to ten sizes, so a single
+    # stubborn row could run for an hour - which is how two cycle rounds were
+    # killed mid-sweep by their caller's timeout, wasting the whole round. 150
+    # seconds settles every two-lit row seen so far except at the largest size,
+    # and a row that times out here is not lost: rerun it with
+    # `twolit.py --step <id> --tight`, which turned a 600-second loose timeout
+    # into a 158-second UNSAT on L-meta-25076.
+    _rc, out = run([sys.executable, "-I", str(TWOLIT), "--step", step_id, "--seconds", "150"], 1800)
     tail = "\n".join(out.strip().splitlines()[-3:])
     return ("FALSE by exhaustion" in out), tail
 
