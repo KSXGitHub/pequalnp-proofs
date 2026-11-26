@@ -73,12 +73,26 @@ def main(argv: list[str]) -> int:
             "and a query with no matching term returns nothing. Try prwatch.py <branch-fragment>.\n"
         )
         return 1
-    rows = sorted(items, key=lambda it: -int(it.get("number") or 0))
+
+    # Typed accessors, because the values are whatever the API sent. mypy --strict
+    # rejected `int(it.get("number") or 0)` and `it.get("pull_request", {}).get(...)`
+    # on an object-valued dict, and it was right to: a `pull_request` field that is
+    # not a dict would raise AttributeError at runtime, on a tool whose whole job
+    # is to be the cheap check I run without thinking.
+    def num_of(it: dict[str, object]) -> int:
+        v = it.get("number")
+        return v if isinstance(v, int) else 0
+
+    def merged_of(it: dict[str, object]) -> bool:
+        pr = it.get("pull_request")
+        return bool(pr.get("merged_at")) if isinstance(pr, dict) else False
+
+    rows = sorted(items, key=lambda it: -num_of(it))
     sys.stdout.write(f"{len(rows)} pull request(s) matching {extra!r} in {UPSTREAM}\n\n")
     for it in rows[:25]:
-        num = it.get("number")
+        num = num_of(it)
         state = str(it.get("state", "?"))
-        merged = " MERGED" if it.get("pull_request", {}).get("merged_at") else ""
+        merged = " MERGED" if merged_of(it) else ""
         comments = it.get("comments")
         sys.stdout.write(
             f"  #{num}  {state.upper()}{merged}  comments={comments}"

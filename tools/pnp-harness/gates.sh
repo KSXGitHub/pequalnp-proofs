@@ -19,7 +19,13 @@ run() {
   rm -f /tmp/gate.$$
 }
 run "unittest"     python3 -m unittest discover -s tests -q
-run "mypy strict"  python3 -m mypy --strict lib read_verdict.py tests triage.py adapt.py reduce.py search
+# THE TOOLS THAT ACTUALLY DECIDE THINGS WERE NOT TYPE-CHECKED. promise.py,
+# promisehunt.py, prwatch.py and sentinel.py were all outside this list while
+# three of them produced wrong answers in one sitting, and mypy found two real
+# holes in prwatch.py the moment it was added: `int(it.get("number") or 0)` on an
+# object-valued dict, and `it.get("pull_request", {}).get("merged_at")`, which
+# raises AttributeError at runtime for any reply whose field is not a dict.
+run "mypy strict"  python3 -m mypy --strict lib read_verdict.py tests triage.py adapt.py reduce.py search promise.py promisehunt.py prwatch.py sentinel.py
 run "ruff check"   ruff check .
 run "ruff format"  ruff format --check .
 for f in *.sh; do [ -e "$f" ] && run "shellcheck $f" shellcheck -S warning "$f"; done

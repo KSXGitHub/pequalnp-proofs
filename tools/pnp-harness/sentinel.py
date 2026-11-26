@@ -130,6 +130,36 @@ def merged_file(step_id: str) -> str | None:
     return path if p.returncode == 0 else None
 
 
+def classify(state: str, mine: bool | None, merged: str | None) -> tuple[str, str]:
+    """Decide a row's fate from the three facts, with no I/O. Returns (verdict, why).
+
+    Pulled out of sweep() so it can be tested without a network: every mistake
+    this file has made was in these four lines, not in the plumbing around them.
+    The first version treated a FAILED desk call as a death and marked a live row
+    dead on one transient curl error.
+
+      ALIVE        the row is open or leased, still ours, no file merged upstream
+      UNREACHABLE  the desk did not answer or did not parse - NOT a death
+      UNKNOWN      a state word we have not seen - reported, never acted on
+      DEAD         closed, stood down, taken from us, or already merged
+    """
+    if state == "?":
+        return "UNREACHABLE", "the desk did not answer or did not parse"
+    if state in ALIVE and mine is not False and merged is None:
+        return "ALIVE", f"state={state}"
+    if state not in ALIVE and state != "not_open":
+        return "UNKNOWN", f"unfamiliar desk state {state!r}"
+    if state == "not_open":
+        why = "state=not_open - checked already, or the fleet stood it down"
+    elif mine is False:
+        why = f"state={state} but NOT ours any more - our lease is gone and another holder has it"
+    else:
+        why = f"state={state}"
+    if merged:
+        why += f"; the step's own file is merged upstream: {merged}"
+    return "DEAD", why
+
+
 def sweep() -> int:
     """One pass. Returns the number of rows newly marked dead."""
     ABANDON.mkdir(exist_ok=True)
@@ -141,36 +171,24 @@ def sweep() -> int:
     for step_id in rows:
         state, mine, raw = desk_state(step_id)
         marker = ABANDON / step_id
+        # The desk call is the only I/O the decision needs; `merged_file` is
+        # skipped when the desk did not answer, since there is nothing to decide.
+        mf = None if state == "?" else merged_file(step_id)
+        fate, why = classify(state, mine, mf)
 
-        # A FAILED CALL IS NOT A DEATH. Report it and move on, leaving any
-        # existing marker exactly as it was.
-        if state == "?":
-            say(f"{step_id}: desk unreachable or unparseable, NOT treating as dead: {raw[:120]}")
+        if fate == "UNREACHABLE":
+            say(f"{step_id}: {why}, NOT treating as dead: {raw[:120]}")
             continue
-
-        mf = merged_file(step_id)
-        if state in ALIVE and mine is not False and mf is None:
+        if fate == "UNKNOWN":
+            say(f"{step_id}: {why} - reporting only, no marker: {raw[:120]}")
+            continue
+        if fate == "ALIVE":
             if marker.exists():
                 # It came back. Clear the marker rather than leave a stale one
                 # that would stop the next worker for no reason.
                 marker.unlink()
-                say(f"{step_id}: state {state} and ours again, marker CLEARED")
+                say(f"{step_id}: {why} and ours again, marker CLEARED")
             continue
-
-        # An UNKNOWN state is reported, never acted on: the vocabulary may grow
-        # and a word we have not seen is not evidence of anything.
-        if state not in ALIVE and state != "not_open":
-            say(f"{step_id}: unfamiliar desk state {state!r} - reporting only, no marker: {raw[:120]}")
-            continue
-
-        if state == "not_open":
-            why = "state=not_open - checked already, or the fleet stood it down"
-        elif mine is False:
-            why = f"state={state} but NOT ours any more - our lease is gone and another holder has it"
-        else:
-            why = f"state={state}"
-        if mf:
-            why += f"; the step's own file is merged upstream: {mf}"
 
         if marker.exists():
             continue

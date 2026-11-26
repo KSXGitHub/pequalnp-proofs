@@ -86,6 +86,36 @@ ROW_RE: Final = re.compile(
     r"\s*\.testBit[^)]*\)\s*\)\s*(\d+)"
 )
 
+#: THE SHARED-BINDER FORM, which ROW_RE does not reach. Upstream writes square
+#: rows as `fun u v : Fin 8 => ...` - one annotation for both binders - and
+#: ROW_RE only matches the per-binder form `(u : Fin 4) (v : Fin 6)`. Every
+#: shared-binder row was therefore skipped in silence and reported as not a
+#: promise row at all, which is how the 8 by 8 row L-meta-20378 and the 5 by 5
+#: rows went unscreened. A test for this form is what found it.
+SHARED_RE: Final = re.compile(
+    r"RepSizeAtMost\s*\(fun\s+\w+\s+\w+\s*:\s*Fin\s*(\d+)\s*=>\s*\(?\s*(\d+)\s*"
+    rf"(?::\s*{NAT})?\s*\)?\s*\.testBit\s*\(\s*(\d+)\s*\*[^)]*\)\s*\)\s*(\d+)"
+)
+
+
+def parse_row(stmt: str) -> tuple[int, int, int, int] | None:
+    """(mask, n, m, budget) from a RepSizeAtMost statement, in either binder form."""
+    hit = ROW_RE.search(stmt)
+    if hit:
+        _u, n_s, _v, m_s, mask_s, budget_s = hit.groups()
+        if n_s and m_s:
+            return int(mask_s), int(n_s), int(m_s), int(budget_s)
+    sh = SHARED_RE.search(stmt)
+    if sh:
+        side_s, mask_s, stride_s, budget_s = sh.groups()
+        # Both binders share the type, so the shape is side x side; the stride in
+        # the testBit index must agree with it, and a disagreement means the
+        # statement is not the shape this tool understands.
+        if int(stride_s) != int(side_s):
+            return None
+        return int(mask_s), int(side_s), int(side_s), int(budget_s)
+    return None
+
 
 def matrix(mask: int, n: int, m: int) -> list[list[bool]]:
     return [[bool((mask >> (m * u + v)) & 1) for v in range(m)] for u in range(n)]
@@ -157,12 +187,10 @@ def scan() -> int:
         if not isinstance(gap, dict):
             continue
         stmt = str(gap.get("statement", ""))
-        m = ROW_RE.search(stmt)
-        if not m:
+        parsed = parse_row(stmt)
+        if parsed is None:
             continue
-        _, n_s, _, m_s, mask_s, budget_s = m.groups()
-        if not (n_s and m_s):
-            continue
+        mask_i, n_i, m_i, budget_i = parsed
         lease = rec.get("lease")
         terms = lease.get("terms") if isinstance(lease, dict) else {}
         terms = terms if isinstance(terms, dict) else {}
@@ -171,7 +199,7 @@ def scan() -> int:
             f"\n=== {gap.get('id')}  {terms.get('points', 0)}pt  kind={terms.get('kind')}"
             f"  {'NEGATED STATEMENT' if negated else 'positive statement'} ===\n"
         )
-        if describe(int(mask_s), int(n_s), int(m_s), int(budget_s)):
+        if describe(mask_i, n_i, m_i, budget_i):
             hits += 1
             if negated or terms.get("kind") == "refute":
                 sys.stdout.write("  *** THIS ROW IS WINNABLE: it asks for the negation we can prove ***\n")
@@ -199,21 +227,16 @@ def verdict_of(step_id: str) -> int:
     except (OSError, json.JSONDecodeError):
         sys.stdout.write("NOTAROW\n")
         return 2
-    m = ROW_RE.search(stmt)
-    if not m:
+    parsed = parse_row(stmt)
+    if parsed is None:
         sys.stdout.write("NOTAROW\n")
         return 2
-    _, n_s, _, m_s, mask_s, budget_s = m.groups()
-    if not (n_s and m_s):
-        sys.stdout.write("NOTAROW\n")
-        return 2
-    least, _lhs, _rhs, wit = bound(int(mask_s), int(n_s), int(m_s))
-    if wit is None:
-        # Without a path witness only the weaker reads_le bound is available, and
-        # it is already folded into `least`; say so rather than imply the sharp one.
-        sys.stdout.write("FALSE\n" if int(budget_s) < least else "UNDECIDED\n")
-        return 0
-    sys.stdout.write("FALSE\n" if int(budget_s) < least else "UNDECIDED\n")
+    mask_i, n_i, m_i, budget_i = parsed
+    least, _lhs, _rhs, _wit = bound(mask_i, n_i, m_i)
+    # `bound` already folds in whether a path witness exists: with one it returns
+    # the sharp sum, without one the weaker reads_le value. So one comparison is
+    # correct in both cases and there is no second branch to get out of step.
+    sys.stdout.write("FALSE\n" if budget_i < least else "UNDECIDED\n")
     return 0
 
 
