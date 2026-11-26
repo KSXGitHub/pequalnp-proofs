@@ -96,6 +96,55 @@ than junk-freeness, so it is NOT the `repairMany` equivalence in disguise: a jun
 long as every edge pair it is true at is owned deeper, and `(x0 or x1) and (x2 or x3)` on four
 pairwise non-adjacent vertices is junk while owning no edge at all.
 
+## L_meta_zzjunk.lean - 43 KB, CHECK_OK 6 s, `import PEqualNP.Defs` only
+
+The file that CLOSED OFF a line rather than opening one, and the reason is worth keeping.
+
+`junkOwnsNoDisjointPair` - "in a least monotone circuit on a triangle-free C4-free graph, a gate
+owning two DISJOINT edges cannot be junk" - was named as the single hole in the star-profile row, and
+I recorded it as STRICTLY WEAKER than junk-freeness, hence a legitimately new target rather than the
+`repairMany` wall. That reading is now refuted by this file:
+`junkLemma_iff_leastStarProfile` proves it is `<->` EQUIVALENT to the row's own conclusion (every
+least monotone circuit of such a graph has a star profile). It was never a stepping stone; it IS the
+claim, so filling that `sorry` was always the whole problem.
+
+What is genuinely new and kernel-checked here:
+
+* `owns_disjoint_dirty` - under `NoFourCycle` ALONE, with no minimality, no `ReadsBack`, no
+  triangle-freeness and NOT EVEN the hypothesis that the circuit computes f_G, an AND gate of a
+  `Monotone2` circuit that owns two disjoint EDGES is true at an input where f_G is false. SO THE
+  WORD `junk` IN THE LEMMA'S NAME IS VACUOUS - the conclusion contradicts its own hypothesis.
+* `owns_disjoint_operands` - every wire such a gate reads is the wire of an earlier OR GATE OF ITS
+  CONE, never an input wire: an input's vertex set is a single vertex, while this must hold an
+  endpoint of each owned edge, and those differ.
+* `noDisjointOwned_iff_starProfile`, `lemmaBody_iff_starProfile` - the two directions behind the
+  equivalence, with no slack.
+* `tightG` / `tightC` - a 6-gate `Monotone2` circuit for the tree 01, 02, 03, 14 whose gate 4 owns
+  the disjoint edges 02 and 14, with its dirtiness, its failure of the star, and the falsity of the
+  lemma body all by `decide`. Least size for that graph is 5 by exact synthesis, SO THE LEMMA FAILS
+  EXACTLY ONE GATE ABOVE THE MINIMUM. That one-gate margin is the whole difficulty, again.
+
+Numerics behind it (SAT, with the simulator transcribed literally from `Defs` and cross-checked
+against the project's own `synth.py`): over minimum-size `Monotone2` circuits, in a normal form that
+provably loses no minimum circuit, there is NO owning gate for all 2 graphs at n=4, all 4 at n=5,
+all 11 at n=6, and 17 of 24 at n=7, over triangle-free C4-free graphs with no isolated vertex and
+two disjoint edges, up to isomorphism. Least size came out as |E| + tau - 1 on every settled graph.
+
+AND ONE-SLOT SURGERY IS DEAD HERE TOO, measured rather than argued: for seven gap-1 witness circuits,
+EVERY bypass (delete a gate, redirect its readers to any wire) fails to compute f_G, and EVERY
+size-preserving one-slot patch fails to give a circuit computing f_G with no owning gate. So
+`patchOne`, the merged `reduce`, and "collapse to one operand" cannot produce the contradiction. For
+`tightC` the smaller circuit is a DISTRIBUTION, not a patch:
+`(x0 or x1) and (x0 or x4) and (x1 or x2 or x3)` against the optimum `x0(x2 or x3) or x1(x0 or x4)`.
+
+Why it is nevertheless true, unformalized: if a cross gate's junk is filtered by one OR of variables
+`h = OR S`, then S must be a vertex cover of the covered edges and every member of S must be
+adjacent to one end of every non-edge in P x Q; C4-freeness then forces
+`|E cap P x Q| <= |P| + |Q| - 1`, so the cross costs `|P| + |Q| + |S| - 1` against the star cover's
+`|E cap P x Q| + |S| - 1` and loses by at least one gate - exactly the measured margin. A general
+proof has to run that accounting for arbitrary multi-level filters with shared ORs, i.e. BUILD THE
+SMALLER CIRCUIT GLOBALLY, which is the same move the universal bound needs. That is the wall.
+
 ## V_meta_zzdry3__k6.lean - 147 KB, CHECK_OK 11 s
 
 A COMPLETE proof, and the only artifact here with nothing left open: the exact optimum of a 4-input
