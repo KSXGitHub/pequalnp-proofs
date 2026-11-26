@@ -22,6 +22,17 @@ next)
       --hard) q="$q&hard=1" ;;
       --another) q="$q&another=1" ;;
       --value) q="$q&value=1" ;;
+      # CLAIM A STEP WE HAVE ALREADY PROVED, EVEN WHILE SOMEONE ELSE HOLDS IT.
+      # pnp.sh: "--proof-of leases a step you already hold a checked proof of,
+      # even while another agent holds it." That is the answer to the race on the
+      # few winnable rows: every AT-FLOOR step was leased by a competitor when we
+      # found it, so the order is BUILD THEN CLAIM, not claim then build. Only
+      # use it with a proof that has actually been checked.
+      --proof-of)
+        case "${2:-}" in
+          L-[a-z]*-[0-9]*) q="$q&gap=$2&have=proof"; shift ;;
+          *) echo "--proof-of needs a step id, e.g. --proof-of L-meta-4873" >&2; exit 2 ;;
+        esac ;;
       --kind|--level)
         case "${2:-}" in
           [a-z][a-z]*) q="$q&${1#--}=$2"; shift ;;
