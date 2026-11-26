@@ -31,3 +31,11 @@ done/
 # tidy-up.
 capacity
 capacity_note
+# sentinel.py's output: a marker file per row the desk has closed under us, and
+# its log. Both are container-local by design. The sentinel exists to tell a
+# WORKER to stop, which it does through a file a worker can stat for free, so
+# none of it should ever travel: a marker is true only of this container's
+# leases at this minute, and a committed one would stop a future worker on a row
+# that is open again.
+abandon/
+sentinel.out
