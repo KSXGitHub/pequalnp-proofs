@@ -73,14 +73,53 @@ def parse_desk(spec: str) -> list[E.GateSpec]:
     return gates
 
 
+#: The sketch writes its circuit as `OR(3,4), AND(0,5), NOT(7), ...` in order.
+GATE_RE: Final = __import__("re").compile(r"\b(OR|AND|NOT)\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\)")
+
+
+def from_step(step_id: str) -> tuple[int, int, int, str]:
+    """(mask, n, budget, desk-spec) read from the step's own record.
+
+    Reading these off a sketch BY HAND is how a wrong constant gets into a run,
+    and it has already happened once in this project with a budget taken from a
+    row title instead of its statement. So the mask, the number of points and the
+    budget come from the posted STATEMENT, and the control circuit from the
+    sketch, parsed rather than retyped.
+    """
+    import json
+    import re
+
+    rec = pathlib.Path(f"/home/user/pequalnp-proofs/tools/pnp-harness/steps/{step_id}.json")
+    d = json.load(open(rec))
+    gap = d["gap"]
+    stmt = str(gap.get("statement", ""))
+    n = int(re.search(r"Fin (\d+)", stmt).group(1))  # type: ignore[union-attr]
+    budget = int(re.search(r"C\.size ≤ (\d+)", stmt).group(1))  # type: ignore[union-attr]
+    mask = int(re.search(r"\((\d+) : ℕ\)\.testBit", stmt).group(1))  # type: ignore[union-attr]
+    spec = ";".join(
+        f"{op.lower()}:{b}" + (f",{c}" if c else "")
+        for op, b, c in GATE_RE.findall(str(gap.get("sketch", "")))
+    )
+    return mask, n, budget, spec
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mask", type=int, required=True)
-    ap.add_argument("--n", type=int, required=True)
-    ap.add_argument("--budget", type=int, required=True)
+    ap.add_argument("--step", type=str, default="", help="read mask, n, budget and the control circuit from this step id")
+    ap.add_argument("--mask", type=int)
+    ap.add_argument("--n", type=int)
+    ap.add_argument("--budget", type=int)
     ap.add_argument("--desk", type=str, default="", help="the sketch's gate list, op:a,b;...")
     ap.add_argument("--seconds", type=int, default=600)
     a = ap.parse_args(argv)
+    if a.step:
+        a.mask, a.n, a.budget, spec = from_step(a.step)
+        a.desk = a.desk or spec
+        sys.stdout.write(f"{a.step}: mask {a.mask}, {a.n} points, budget {a.budget}\n")
+        sys.stdout.write(f"  control circuit from the sketch: {a.desk or '(none found)'}\n")
+    if a.mask is None or a.n is None or a.budget is None:
+        sys.stderr.write("need --step, or all of --mask --n --budget\n")
+        return 2
 
     rs = rows(a.mask, a.n)
     sys.stdout.write(f"mask {a.mask} on {a.n} points, {len(rs)} constrained rows, budget {a.budget}\n")
