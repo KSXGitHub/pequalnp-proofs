@@ -59,8 +59,36 @@ n="$(printf '%s\n' "$names" | grep -c .)"
 echo "declarations this file adds: $n"
 printf '%s\n' "$names" | sed 's/^/  /'
 case "$base" in
-  R_*) if [ "$n" -eq 1 ]; then echo "DECLS_OK (reduction: exactly one declaration)"; else
-         echo "DECLS_FAIL (reduction: must add exactly ONE declaration, found $n)"; exit 1; fi ;;
+  R_*) # THE RULE IS NO FOREIGN DECLARATION, NOT EXACTLY ONE. This branch used to demand
+       # `n -eq 1` and that was measurably wrong: run it against reductions UPSTREAM HAS
+       # ALREADY MERGED and it rejects them. On upstream/main, R_meta_4079_731 adds FOUR
+       # declarations and R_meta_4079_23 adds two - both merged, both DECLS_FAIL under the old
+       # test, and R_meta_4079_556 adds seventy-nine. The reason is ordinary Lean elaboration:
+       # every tactic-proved `have` is lifted into an auxiliary `<theorem>._proof_i_j`, so only
+       # a glue-only proof with no tactic blocks can ever reach exactly one.
+       #
+       # What upstream actually refuses (decls.sh's own header says so) is a FOREIGN
+       # declaration: an auto-generated lemma on a PROJECT definition, such as `X.eq_1` or
+       # `X.congr_simp`, which appears when a definition is passed to simp/rw/unfold. Those
+       # land outside the theorem's namespace. Auxiliaries under the theorem's own namespace
+       # are harmless and are merged routinely.
+       #
+       # So the test is the same one the L_ branch uses: de-mangle private names, then require
+       # every declaration to sit under this theorem's namespace. Chasing `n -eq 1` instead
+       # costs real content - on R_meta_4079_409, hoisting the inline `purity` lemma out into a
+       # hypothesis only moved 4 to 3 and would have handed away the reduction's only new idea.
+       ns="PEqualNP.Outside.$base"
+       stray="$(printf '%s\n' "$names" | sed -E 's/^_private\.[^ ]*\.[0-9]+\.//' \
+                 | grep -v "^$ns" || true)"
+       if [ -z "$stray" ]; then
+         echo "DECLS_OK (reduction: $n declaration(s), all under $ns, none foreign)"
+       else
+         echo "DECLS_FAIL (reduction: these land outside $ns, which is what upstream refuses:)"
+         printf '%s\n' "$stray" | sed 's/^/    /'
+         echo "  Auto-generated lemmas on project definitions are the usual cause; they come from"
+         echo "  passing a DEFINITION to simp/rw/unfold. Use a rfl-typed have, or show/change."
+         exit 1
+       fi ;;
   L_*) ns="PEqualNP.Outside.$base"
        # Lean mangles a private name as `_private.<file path>.0.<the real name>`, so a prefix
        # test on the raw string calls a module-local helper's match equations "outside the

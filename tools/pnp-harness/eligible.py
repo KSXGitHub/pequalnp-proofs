@@ -46,6 +46,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 from typing import Final
 
 # absolute(), not resolve(): this file is symlinked into the live rig so that
@@ -59,11 +60,32 @@ CAP: Final = 3
 
 
 def answer(step_id: str) -> dict[str, object] | None:
-    """The whole /desk/next answer for a step, as saved when it was leased."""
+    """The whole /desk/next answer for a step, as saved when it was leased.
+
+    THIS IS A SNAPSHOT, AND THE SLOT COUNT IN IT GOES STALE. That cost us a whole
+    worker: L-meta-4079 was drawn with `reductions_live` 0 of 3, an agent spent
+    twenty-eight minutes writing R_meta_4079_409, re-ran this script as asked and
+    was told OPEN - because it re-read the same saved file - and the submission
+    then aborted on a fresh draw that reported 3 of 3. Competitors had filled
+    every slot while it worked.
+
+    Nothing here can refresh it: `desk.sh state` returns only state, holders and
+    since - no reduction row - so the ONLY way to refresh is another draw
+    (`desk.sh next`, or `--proof-of <id>` for a step we already have a proof of),
+    which rewrites this file. So print how old the snapshot is and say so, rather
+    than implying the number is live.
+    """
     p = S / "steps" / f"{step_id}.json"
     if not p.exists():
         return None
     got: dict[str, object] = json.load(open(p))
+    age = (time.time() - p.stat().st_mtime) / 60.0
+    if age > 5.0:
+        sys.stdout.write(
+            f"  WARNING: this slot count is {age:.0f} minutes old and CANNOT be refreshed by this\n"
+            f"  script. Re-draw the step first (desk.sh next --proof-of {step_id}) and run this\n"
+            f"  again, or the submission may abort on a full slot set as L-meta-4079 did.\n"
+        )
     return got
 
 
