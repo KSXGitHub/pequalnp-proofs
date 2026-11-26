@@ -24,10 +24,12 @@ import PEqualNP.Defs
 -- and k - 1 final ORs, that is 15 + k gates, and the centres must be a vertex cover,
 -- so k >= 7 and the cost is at least 22.  Nor does sharing help: two stars with
 -- different centres have leaf sets meeting in at most one vertex, so no union of two
--- or more leaves is ever reusable.  Exhaustive search over the depth-3 forms with
--- three and with four factors, where the inner ANDs may be dirty, gives the same 22.
--- A 21-gate program therefore has to share sub-ORs across products of three or more
--- groups, or be deeper still, and that is the content of hProgram.
+-- or more leaves is ever reusable.  Exhaustive search over every depth-3 form whose
+-- products have two or three factors, inner ANDs allowed to be dirty, enumerating
+-- the terms by which rows they fire on and covering the 16 rows by an exact DP,
+-- gives the same 22; the four-factor forms were not searched.  A 21-gate program
+-- therefore has to share sub-ORs across products of three or more groups, or be
+-- deeper still, and that is the content of hProgram.
 --
 -- hProgram is the search half.  It hands over a straight-line program as plain
 -- functions on naturals: a length n at most 21, an operation bit, two operand
