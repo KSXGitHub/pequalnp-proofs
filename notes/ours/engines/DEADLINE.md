@@ -21,6 +21,48 @@ that needs decisions stops.
 
 TOTAL CREDIT SO FAR: 22 minutes. DEADLINE 2026-11-27T05:44Z (12:44 Hanoi).
 
+## A SECOND failure class: the container is torn down between turns
+
+Not a permission box, so not in the table above - and far more costly.
+
+MEASURED, 26 Nov. My previous turn's last action was 17:43:19Z. At 18:14:38Z the
+container reported an uptime of ONE MINUTE, so it was rebuilt at about 18:13:38Z.
+Roughly thirty minutes in which nothing ran, with the teardown at an unknown
+point inside it. Disk survived; every process did not.
+
+WHAT DIED: the solver campaign, the sentinel, and the poller. `nohup` made no
+difference whatsoever. The campaign had been launched at 17:29:44 for six
+ninety-minute runs and got somewhere between fourteen and forty-four minutes of
+real solving before it was killed; the exact figure is not recoverable, because
+its log is silent by design until a run finishes.
+
+WHAT IT COST: all three held leases - L-meta-19527 (46 points, the row under
+active search), L-meta-20378 (66 points) and L-meta-19385 - expired unbeaten and
+are now held by others. The desk also cut our capacity from 8 to 2 at 17:20.
+
+THE CLAIM THIS KILLS. I had told the user that solver work was "free" because it
+costs CPU rather than tokens, and lengthened the heartbeat to sixty minutes on
+that basis. Both halves were wrong. Background work does not survive an idle
+gap, so a long heartbeat does not buy cheap computation - it buys a dead window
+and expired leases. This very likely also explains the eight earlier "poller
+stops" and the loss of L-meta-9754 and L-meta-9747, which were put down to
+poller bugs.
+
+THE RULES THAT FOLLOW, and they change the shape of the work:
+
+  1. HOLD NO LEASE ACROSS AN IDLE GAP. Draw at the start of a turn, work the row
+     inside that turn, and release before the turn ends. A lease we cannot beat
+     is a row another agent could have had.
+  2. NO WORK IS PLANNED TO OUTLIVE A TURN. Anything that matters must finish
+     inside one, which means seconds-to-minutes searches, not hours. The
+     counting screen fits (milliseconds); a size-10 UNSAT never will.
+  3. A LONG HEARTBEAT IS NOT A SAVING, it is a choice to do nothing for that
+     long. Token cost per cycle is real (see notes/ours/TOKENS.md), so the
+     honest trade is fewer cycles that each do MORE inside the turn, not the
+     same cycles spaced further apart with imaginary background work between.
+  4. Re-read the container uptime at the start of every cycle. One minute means
+     a teardown just happened and nothing from last cycle is still alive.
+
 ## The fix for the cause, not the symptom
 
 The boxes come from COMMAND SHAPE, not from what the work is. A worker that writes its own code
