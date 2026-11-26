@@ -41,7 +41,16 @@ next)
         esac ;;
       --kind|--level)
         case "${2:-}" in
-          [a-z][a-z]*) q="$q&${1#--}=$2"; shift ;;
+          [a-z][a-z]*)
+            q="$q&${1#--}=$2"
+            # `kind=value` WITHOUT `value=1` IS REFUSED, and the refusal reads like a
+            # stale-clone problem rather than a malformed request: "Value steps need a
+            # newer tools/pnp.sh: update your clone ... a request by hand adds &value=1".
+            # Our clone was current (we had just merged upstream), so the message sent me
+            # looking for the wrong fault. The desk wants BOTH parameters, so add the
+            # second one here rather than relying on every caller to remember it.
+            case "$1=$2" in --kind=value) case "$q" in *"&value=1"*) : ;; *) q="$q&value=1" ;; esac ;; esac
+            shift ;;
           *) echo "$1 needs a word, e.g. $1 value" >&2; exit 2 ;;
         esac ;;
       *) echo "unknown: $1" >&2; exit 2 ;;
