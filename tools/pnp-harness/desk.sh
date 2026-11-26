@@ -46,6 +46,26 @@ next)
   printf '%s' "$ans" | python3 -I -c '
 import json,sys,os,re
 S=sys.argv[1]
+# RECREATE THE STATE DIRECTORIES FIRST. They are untracked, and submit.py cuts
+# its artifact branch with `git checkout -B <gid> upstream/main`, which strips
+# tools/pnp-harness/ from the working tree; returning to main restores only the
+# TRACKED files. That deleted leanpath.txt once (check.sh now regenerates it)
+# and this time it took live/, dead/, steps/ and done/ with it.
+#
+# The failure was SILENT and expensive: with steps/ gone this open() raised
+# FileNotFoundError, poll.sh read only the last stdout line, saw no "GOT", and
+# said nothing - so for twenty minutes the poller leased steps from the desk,
+# threw the lease id away, never beat them, and let them expire unscreened.
+# With live/ gone the glob in the beat loop matched nothing, so the two steps we
+# did hold (L-meta-9754, 1189 points, and L-meta-1988) expired without one line
+# of warning. An empty live/ now means "we hold nothing", never "state is lost".
+#
+# NO APOSTROPHES BELOW THIS POINT, OR ABOVE IT EITHER: this whole block is the
+# argument of `python3 -I -c '...'`, inside single quotes, so one apostrophe in
+# a comment ends the string and bash then tries to parse Python. That is what
+# the first version of this comment did.
+for _d in ("steps","live","dead","done"):
+    os.makedirs(os.path.join(S,_d),exist_ok=True)
 d=json.load(sys.stdin)
 g=d.get("gap")
 # RECORD THE CAPACITY THE DESK REPORTS, whether or not a step came with it. An

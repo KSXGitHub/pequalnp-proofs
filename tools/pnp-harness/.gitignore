@@ -10,3 +10,24 @@ leanpath.txt
 # check.sh's flock files, so at most two checks run at once. Runtime state, and
 # committing a lock file would be meaningless; check.sh recreates the directory.
 logs/
+# THE LEASE AND STEP STATE. Untracked, and that was the whole problem: a worker
+# clearing the tree with `git clean -fd` deletes untracked directories but
+# SPARES ignored ones, so this list is what stands between a tidy-up and the
+# loss of every live lease id. It has already happened once - the ignored
+# neighbours above (leanpath.txt, logs/, __pycache__) survived while live/,
+# dead/, steps/ and done/ went, which is exactly that signature. We lost
+# L-meta-9754 (1189 points) and L-meta-1988 to it, and then kept leasing steps
+# we silently dropped because desk.sh could not write into a missing steps/.
+#
+# Never commit them: a lease id is a credential with a 20-minute life and the
+# step JSON is the desk's copy, refetchable with `desk.sh state`.
+live/
+dead/
+steps/
+done/
+# The capacity the desk last reported ("You hold 2 of 2 steps. 2 grows as your
+# proofs are checked."), which poll.sh reads instead of guessing. Same class of
+# runtime state, same reason to keep it out of a commit and out of reach of a
+# tidy-up.
+capacity
+capacity_note

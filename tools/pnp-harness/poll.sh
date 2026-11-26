@@ -19,6 +19,11 @@ RUN="${1:-1200}"
 MAXHOLD="${2:-5}"
 end=$(($(date +%s) + RUN))
 tick=0   # alternates the two draw pools, see below
+# The state directories are untracked and DO get deleted (submit.py's
+# `git checkout -B <gid> upstream/main` strips tools/pnp-harness/ from the tree
+# and the return to main restores only tracked files). desk.sh recreates them
+# too; do it here as well so a poller started into a stripped tree works.
+mkdir -p "$S/live" "$S/dead" "$S/steps" "$S/done"
 
 while [ "$(date +%s)" -lt "$end" ]; do
   # Beat everything held: a lease dies 20 minutes after its last beat, and a 410
@@ -71,7 +76,12 @@ while [ "$(date +%s)" -lt "$end" ]; do
     got="$("$S"/desk.sh next "$flag" 2>&1 | tail -1)"
     case "$got" in
       GOT\ *) echo "$(date -u +%H:%M:%SZ) $got via $flag (holding $((held + 1))/$MAXHOLD)" ;;
-      *) : ;;  # nothing free; stay quiet and ask again shortly
+      NO_STEP*|DESK_REFUSED*) : ;;  # nothing free; stay quiet and ask again shortly
+      # ANYTHING ELSE IS A BUG, NOT AN EMPTY DESK. This branch used to swallow
+      # every non-GOT answer, which hid a FileNotFoundError from the missing
+      # steps/ directory for twenty minutes while the desk kept handing us
+      # leases we immediately dropped on the floor. Never silent again.
+      *) echo "$(date -u +%H:%M:%SZ) DRAW-ERROR via $flag: $got" ;;
     esac
     tick=$((tick + 1))
   fi
