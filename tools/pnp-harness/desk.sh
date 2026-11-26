@@ -111,7 +111,20 @@ release)
   # runs: the desk has released the step while the local lease file still says we hold it.
   # That happened. Capture first, move the file, print last.
   ans="$(curl -sS -m 20 -X POST "$DESK/release?$q")"
-  mv "$L" "$S/dead/$2.lease" 2>/dev/null || true
+  # MOVE THE LEASE ONLY IF THE DESK ACTUALLY RELEASED IT. This used to mv
+  # unconditionally, so a REFUSED release still cleared our lease file. Asking
+  # `exhausted` for a lease with no shard range is answered
+  #   {"error": "exhausted is for a range of a sharded search; this lease has none"}
+  # and the row then stayed leased at the desk while live/ said we held nothing:
+  # unbeatable, unreleasable, and invisible to triage until it expired. That is
+  # the same state desync that cost us rows before. Recovery was to copy the
+  # lease back out of dead/ and release again, which should never be necessary.
+  case "$ans" in
+    *'"released"'*)
+      mv "$L" "$S/dead/$2.lease" 2>/dev/null || true ;;
+    *)
+      echo "RELEASE REFUSED - the lease is KEPT in live/ so it can still be beaten and released" >&2 ;;
+  esac
   printf '%s\n' "$ans"
   ;;
 *) echo "usage: desk.sh next|beat|state|release" ;;
