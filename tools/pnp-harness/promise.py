@@ -49,7 +49,15 @@ Mask 7535 is the case in point: 3 forced rows and 4 forced columns, floor 6 by t
 weak bound and 7 by the sharp one, posted budget 6.
 
 This is why --scan is worth running on every draw rather than on the row in hand:
-the rows are mis-posted systematically, not occasionally. Five so far, 476 points.
+the rows are mis-posted systematically, not occasionally. Six so far, 892 points:
+20460 (202), 20940 (213), 20531 (204), 20464 (203), 21819 (37), 21851 (33).
+
+AND WHY --scan RATHER THAN THE TWO-ARGUMENT FORM. The budget is part of the
+posted statement and must be read FROM it. Screening 20464 and 20940 by hand, I
+typed the budgets as 6 and 7; they are 5 and 8. One of those errors would have
+reported a false row as undecided. --scan takes the budget from the statement
+text, so use it for any verdict that matters and keep the two-argument form for
+exploring a mask whose budget you are choosing yourself.
 """
 
 from __future__ import annotations
