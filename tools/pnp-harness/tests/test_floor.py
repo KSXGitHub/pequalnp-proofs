@@ -177,3 +177,70 @@ class TestTermDecoder(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MismatchAndCutSlices(unittest.TestCase):
+    """The fourth impossibility shape, and the slices the floor must not judge.
+
+    Both were found the same way: by reading two freshly drawn steps by hand after the tool
+    had already pronounced on them, and finding it wrong about both. Lean characters are
+    built with `chr` here for the same reason as in floor.py - this source stays ASCII.
+    """
+
+    FORALL = chr(0x2200)
+    EXISTS = chr(0x2203)
+    ARROW = chr(0x2192)
+    IMPL = chr(0x2192)
+    LE = chr(0x2264)
+    NAT = chr(0x2115)
+    NEG = chr(0x00AC)
+    IFF = chr(0x2194)
+    AND = chr(0x2227)
+
+    def test_mismatch_conclusion_is_a_lower_bound(self) -> None:
+        """`exists input, not (eval <-> f)` says "does not compute", so it is a lower bound.
+
+        The shape of L-meta-1894. There is no leading negation and no trailing `False`, so the
+        two earlier guards both miss it, and the tool read PG(2,4) at 124 against a floor of
+        125 as BELOW FLOOR / likely false - advice to release a step the floor SUPPORTS.
+        """
+        c = self
+        stmt = (
+            f"{c.FORALL} (x1 : PEqualNP.CircuitLowerBounds.Circuit), "
+            f"PEqualNP.MetaComplexity.Monotone2 x1 {c.IMPL} x1.size {c.LE} (124 : {c.NAT}) {c.IMPL} "
+            f"{c.EXISTS} (x5 : Fin (42 : {c.NAT}) {c.ARROW} Bool), "
+            f"{c.NEG}(x1.eval (List.ofFn x5) = Bool.true {c.IFF} "
+            f"{c.EXISTS} (x6 : Fin (42 : {c.NAT})), x5 x6 = Bool.true)"
+        )
+        self.assertEqual(floor.negation_shape(stmt), "mismatch")
+
+    def test_nested_parens_do_not_defeat_the_scan(self) -> None:
+        """The negated group contains `(List.ofFn x5)`, which a `[^)]*` regex would stop at."""
+        stmt = f"{self.NEG}(x1.eval (List.ofFn x5) = Bool.true {self.IFF} True)"
+        self.assertIn(self.IFF, floor.negated_group(stmt, 1))
+
+    def test_a_plain_find_is_still_not_a_mismatch(self) -> None:
+        """No `not (... <-> ...)` anywhere, so the shape must stay empty and the sign hold."""
+        c = self
+        stmt = (
+            f"{c.EXISTS} (x1 : PEqualNP.CircuitLowerBounds.Circuit), x1.size {c.LE} (63 : {c.NAT}) {c.AND} "
+            f"{c.FORALL} (x2 : Fin (26 : {c.NAT}) {c.ARROW} Bool), x1.eval (List.ofFn x2) = Bool.true"
+        )
+        self.assertEqual(floor.negation_shape(stmt), "")
+
+    def test_cut_slice_withholds_the_dispatch_advice(self) -> None:
+        """A slice of a cut parent gets no dispatch verdict, whichever way the floor fell.
+
+        L-meta-2397's parent reads "... has at least 64 gates" and its own `size <= 63` is the
+        assumption the parent refutes, so BELOW FLOOR / "likely false" is backwards. The
+        original tag is kept inside the detail so nothing is hidden, only demoted.
+        """
+        v = floor.Verdict("BELOW FLOOR", "slack 1; do not dispatch", 64, 63)
+        out = floor.cut_substep(v, {"title": "A step toward: Order-3 plane: at least 64 gates"})
+        self.assertEqual(out.tag, "CUT SLICE - NO DISPATCH VERDICT")
+        self.assertIn("BELOW FLOOR", out.detail)
+        self.assertEqual((out.effective, out.posted), (64, 63))
+
+    def test_a_standalone_claim_keeps_its_verdict(self) -> None:
+        v = floor.Verdict("FLOOR SUPPORTS THE NEGATION", "the floor is 125 > posted 124", 125, 124)
+        self.assertEqual(floor.cut_substep(v, {"title": "No circuit of at most 124 gates"}).tag, v.tag)

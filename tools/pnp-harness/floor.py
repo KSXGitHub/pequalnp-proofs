@@ -488,8 +488,48 @@ def minsize_claim(stmt: str) -> tuple[str, int, str] | None:
     )
 
 
+def negated_group(stmt: str, at: int) -> str:
+    """The text inside the `(` that follows the `not` at index `at`, to its matching `)`.
+
+    A regex cannot do this: the body of a mismatch conclusion contains its own parentheses
+    (`x1.eval (List.ofFn x5) = Bool.true`), so `[^)]*` stops at the wrong one. Scan with a
+    depth counter instead and return "" if the group never closes.
+    """
+    i = stmt.find("(", at)
+    if i < 0:
+        return ""
+    depth = 0
+    for j in range(i, len(stmt)):
+        if stmt[j] == "(":
+            depth += 1
+        elif stmt[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return stmt[i + 1 : j]
+    return ""
+
+
+def mismatch_shape(stmt: str) -> bool:
+    """True for a conclusion of the form `exists input, not (C.eval ... <-> f ...)`.
+
+    THE THIRD SIGN BUG OF THIS FAMILY, and the one that was still live. A lower bound does
+    not have to wear a leading `not`, and it does not have to end in `False`: it can assert
+    that some input is a MISMATCH between the circuit and the function, which says exactly
+    "this circuit does not compute f" and makes the whole statement a lower bound.
+    L-meta-1894 is that shape - PG(2,4), 105 edges, tau 21, floor 125, posted 124 - and the
+    tool printed BELOW FLOOR, "do not dispatch, the statement is likely false", when the
+    floor is what SUPPORTS it. Releasing a true step on that advice is the one failure this
+    screen must not have, and it nearly cost two of them in one draw.
+    """
+    iff = chr(0x2194)
+    for m in re.finditer(re.escape(NEG), stmt):
+        if iff in negated_group(stmt, m.end()):
+            return True
+    return False
+
+
 def negation_shape(stmt: str) -> str:
-    """ "", `exists`, `forall`, `other` or `universal-false`: what, if anything, is negated.
+    """ "", `exists`, `forall`, `other`, `universal-false` or `mismatch`: what is negated.
 
     Decided by which marker comes FIRST after the leading `not (`, so a `have ...;` preamble
     and any nesting further in are both harmless.
@@ -507,6 +547,8 @@ def negation_shape(stmt: str) -> str:
         body = stmt.rstrip()
         if body.endswith("False") and (ARROW in body or FORALL in body):
             return "universal-false"
+        if mismatch_shape(stmt):
+            return "mismatch"
         return ""
     body = stmt[stmt.index(NEG) + 1 :]
     hits = [body.index(h) for h in EXISTS_HEADS if h in body]
@@ -1030,6 +1072,37 @@ class Verdict:
     posted: int | None
 
 
+def cut_substep(v: Verdict, gap: object) -> Verdict:
+    """Withhold the dispatch advice when the step is one SLICE of a cut, not the claim.
+
+    A title beginning "A step toward:" means the desk has cut a parent claim into siblings
+    and is posting a HYPOTHESIS of a checked reduction - so the posted number need not be
+    the circuit budget of anything, and usually sits in a hypothesis rather than the goal.
+    L-meta-2397 is that shape: its parent reads "... has at least 64 gates", the floor is
+    exactly 64, and the `size <= 63` the tool finds is the assumption the parent refutes. So
+    BELOW FLOOR / "likely false" is backwards - the floor is what makes the parent TRUE, and
+    this slice is a lemma inside that argument.
+
+    This is the same error as the three sign bugs, arriving by a different road: the shape of
+    the SENTENCE was read correctly and the shape of the TASK was not. L-meta-4131 was the
+    warning - also "A step toward:", also unreadable by the floor - and it was only luck that
+    its relation did not decode, so no false verdict was printed.
+    """
+    gapd: dict[str, object] = gap if isinstance(gap, dict) else {}
+    title = str(gapd.get("title", ""))
+    if not title.strip().lower().startswith("a step toward"):
+        return v
+    return Verdict(
+        "CUT SLICE - NO DISPATCH VERDICT",
+        f"this is one slice of a cut parent, so the floor describes the PARENT claim and not this"
+        f" statement, whose posted number may sit in a hypothesis. The tool would otherwise have said"
+        f" {v.tag} ({v.detail}). Read the parent title and the sibling steps before judging it,"
+        f" and check `reductions` and the slot count with eligible.py before writing anything",
+        v.effective,
+        v.posted,
+    )
+
+
 def verdict_of(
     counted: FloorSource,
     bound: tuple[int, str] | None,
@@ -1102,7 +1175,7 @@ def verdict_of(
             eff,
             posted,
         )
-    if negated == "exists":
+    if negated in {"exists", "mismatch"}:
         if posted < eff:
             tag = "FLOOR SUPPORTS THE NEGATION"
             detail = (
@@ -1186,7 +1259,7 @@ def analyse(gid: str) -> tuple[Verdict, FloorSource | None, SideConditions, Cost
         )
     counted = count(rel)
     sides = side_conditions(stmt, counted)
-    return verdict_of(counted, bound, sides, model, negated), counted, sides, model, info, stmt
+    return cut_substep(verdict_of(counted, bound, sides, model, negated), gap), counted, sides, model, info, stmt
 
 
 def report_terms(counted: TermCounted, verdict: Verdict, model: CostModel) -> int:
