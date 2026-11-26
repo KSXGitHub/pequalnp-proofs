@@ -88,10 +88,32 @@ while [ "$(date +%s)" -lt "$end" ]; do
     # Supply is the binding constraint - every draw from the other two pools now
     # returns a step we already hold - so a pool nobody else is asking for is
     # worth more than a faster cadence on the two that are exhausted.
-    case $((tick % 3)) in
+    # SEVEN POOLS, NOT THREE. We spent two windows drawing only `--another` and
+    # `--hard`, which is why every row we ever screened was level `hard` or
+    # `open` - the two hardest categories the desk has - and why almost nothing
+    # we drew was inside our reach.
+    #
+    # What our reach actually is, measured: a FIND row is winnable when the
+    # search fits our engines (about 10 inputs and 15 gates), because then the
+    # witness IS the proof and the Lean side is four lines; a VALUE row is
+    # winnable mechanically at n=4 with k<=6 or n=8 with k<=5, witness plus
+    # LRAT-certified lower bound, nothing left open; and a SEARCH row can be
+    # completed by EXHAUSTING one shard, which is a legitimate outcome and needs
+    # no witness at all. None of those three categories is `hard`/`open`-shaped,
+    # and we were not asking for any of them.
+    #
+    # So sample the whole desk. `warmup` and `solid` are the levels we had never
+    # once requested; `search` and `refute` are kinds we had never requested.
+    # A draw costs nothing - only a DECLINE spends the rate limit - so breadth
+    # here is free, and the catalogue it builds is what `catalogue.py` ranks.
+    case $((tick % 7)) in
       0) flag="--another" ;;
       1) flag="--hard" ;;
-      *) flag="--value" ;;
+      2) flag="--value" ;;
+      3) flag="--level warmup" ;;
+      4) flag="--level solid" ;;
+      5) flag="--kind search" ;;
+      *) flag="--kind refute" ;;
     esac
     got="$("$S"/desk.sh next $flag 2>&1 | tail -1)"
     case "$got" in
