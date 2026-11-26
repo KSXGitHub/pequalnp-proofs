@@ -2,9 +2,9 @@ import PEqualNP.Defs
 import PEqualNP.MetaComplexity.Helpers.RepPath
 
 /-!
-# 15 posted promise rows are false, and the template that makes them is one unit short
+# 20 posted promise rows are false, and the template that makes them is one unit short
 
-This file proves 15 posted statements false, by citing a lemma this repository
+This file proves 20 posted statements false, by citing a lemma this repository
 already carries. It is offered unsolicited, with no gap id, because these rows
 are posted in one direction only and so there is no row to attach a negation to.
 The reason for sending it anyway is the last section: the template generating
@@ -33,11 +33,16 @@ exists, and it is exhibited in the proof term.
 | L-meta-20452 | 3 x 5 | 47 | 5 | 2 + 4 | 6 |
 | L-meta-20531 | 3 x 5 | 7535 | 6 | 3 + 4 | 7 |
 | L-meta-20464 | 3 x 5 | 1093 | 5 | 3 + 3 | 6 |
+| L-meta-23282 | 4 x 6 | 391151 | 8 | 3 + 6 | 9 |
 | L-meta-20460 | 3 x 5 | 249 | 6 | 2 + 5 | 7 |
 | L-meta-20456 | 3 x 5 | 111 | 5 | 2 + 4 | 6 |
 | L-meta-20525 | 3 x 5 | 3575 | 6 | 2 + 5 | 7 |
+| L-meta-20888 | 4 x 5 | 34043 | 6 | 2 + 5 | 7 |
+| L-meta-23322 | 4 x 6 | 807423 | 6 | 4 + 3 | 7 |
 | L-meta-21834 | 4 x 6 | 288447 | 8 | 4 + 5 | 9 |
+| L-meta-23093 | 3 x 6 | 30443 | 8 | 3 + 6 | 9 |
 | L-meta-23335 | 4 x 6 | 815608 | 9 | 4 + 6 | 10 |
+| L-meta-23363 | 4 x 6 | 816891 | 8 | 3 + 6 | 9 |
 | L-meta-23395 | 4 x 6 | 840563 | 9 | 4 + 6 | 10 |
 | L-meta-20922 | 4 x 5 | 39770 | 8 | 4 + 5 | 9 |
 | L-meta-21819 | 4 x 6 | 276333 | 8 | 3 + 6 | 9 |
@@ -60,7 +65,7 @@ which holds unconditionally and gives `card sum <= s + 1`. `RepPath.path` gives
 does. So each row is posted one below its own floor, the gap is believed to be
 one, and the family is generated as searches that cannot succeed.
 
-These 15 were drawn and screened in a single session; every one whose budget fell
+These 20 were drawn and screened in a single session; every one whose budget fell
 below the sharp floor was false. Using `path` rather than `reads_le` when the
 witness exists would stop the family being generated this way.
 
@@ -152,6 +157,21 @@ theorem A1093_3x5_not_5 : ¬ RepSizeAtMost A1093_3x5 5 := by
   decide
 
 
+/-- The 4 by 6 mask of L-meta-23282: rows `1111.1`, `11111.`, `11111.`, `1.....`. -/
+def A391151_4x6 : Fin 4 → Fin 6 → Bool :=
+  fun u v => (391151 : ℕ).testBit (6 * u.val + v.val)
+
+/-- L-meta-23282 posted 8; the forced reads total 9. -/
+theorem A391151_4x6_not_8 : ¬ RepSizeAtMost A391151_4x6 8 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 4 6 8 A391151_4x6 0 1 1 5
+      (by decide) (by decide) (by decide) (by decide)
+      (Exists.intro 4 (by decide)) (Exists.intro 3 (by decide)) h
+  revert key
+  decide
+
+
 /-- The 3 by 5 mask of L-meta-20460: rows `1..11`, `111..`, `.....`. -/
 def A249_3x5 : Fin 3 → Fin 5 → Bool :=
   fun u v => (249 : ℕ).testBit (5 * u.val + v.val)
@@ -197,6 +217,36 @@ theorem A3575_3x5_not_6 : ¬ RepSizeAtMost A3575_3x5 6 := by
   decide
 
 
+/-- The 4 by 5 mask of L-meta-20888: rows `11.11`, `111..`, `1....`, `1....`. -/
+def A34043_4x5 : Fin 4 → Fin 5 → Bool :=
+  fun u v => (34043 : ℕ).testBit (5 * u.val + v.val)
+
+/-- L-meta-20888 posted 6; the forced reads total 7. -/
+theorem A34043_4x5_not_6 : ¬ RepSizeAtMost A34043_4x5 6 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 4 5 6 A34043_4x5 0 1 1 3
+      (by decide) (by decide) (by decide) (by decide)
+      (Exists.intro 2 (by decide)) (Exists.intro 2 (by decide)) h
+  revert key
+  decide
+
+
+/-- The 4 by 6 mask of L-meta-23322: rows `111111`, `111...`, `1.1...`, `11....`. -/
+def A807423_4x6 : Fin 4 → Fin 6 → Bool :=
+  fun u v => (807423 : ℕ).testBit (6 * u.val + v.val)
+
+/-- L-meta-23322 posted 6; the forced reads total 7. -/
+theorem A807423_4x6_not_6 : ¬ RepSizeAtMost A807423_4x6 6 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 4 6 6 A807423_4x6 1 2 2 1
+      (by decide) (by decide) (by decide) (by decide)
+      (Exists.intro 3 (by decide)) (Exists.intro 3 (by decide)) h
+  revert key
+  decide
+
+
 /-- The 4 by 6 mask of L-meta-21834: rows `111111`, `.1.11.`, `.11...`, `1.....`. -/
 def A288447_4x6 : Fin 4 → Fin 6 → Bool :=
   fun u v => (288447 : ℕ).testBit (6 * u.val + v.val)
@@ -212,6 +262,21 @@ theorem A288447_4x6_not_8 : ¬ RepSizeAtMost A288447_4x6 8 := by
   decide
 
 
+/-- The 3 by 6 mask of L-meta-23093: rows `11.1.1`, `11.11.`, `111...`. -/
+def A30443_3x6 : Fin 3 → Fin 6 → Bool :=
+  fun u v => (30443 : ℕ).testBit (6 * u.val + v.val)
+
+/-- L-meta-23093 posted 8; the forced reads total 9. -/
+theorem A30443_3x6_not_8 : ¬ RepSizeAtMost A30443_3x6 8 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 3 6 8 A30443_3x6 0 1 3 5
+      (by decide) (by decide) (by decide) (by decide)
+      (Exists.intro 2 (by decide)) (Exists.intro 2 (by decide)) h
+  revert key
+  decide
+
+
 /-- The 4 by 6 mask of L-meta-23335: rows `...111`, `111...`, `111...`, `11....`. -/
 def A815608_4x6 : Fin 4 → Fin 6 → Bool :=
   fun u v => (815608 : ℕ).testBit (6 * u.val + v.val)
@@ -223,6 +288,21 @@ theorem A815608_4x6_not_9 : ¬ RepSizeAtMost A815608_4x6 9 := by
     PEqualNP.MetaComplexity.RepPath.path 4 6 9 A815608_4x6 1 3 0 2
       (by decide) (by decide) (by decide) (by decide)
       (Exists.intro 3 (by decide)) (Exists.intro 0 (by decide)) h
+  revert key
+  decide
+
+
+/-- The 4 by 6 mask of L-meta-23363: rows `11.111`, `11.11.`, `111...`, `11....`. -/
+def A816891_4x6 : Fin 4 → Fin 6 → Bool :=
+  fun u v => (816891 : ℕ).testBit (6 * u.val + v.val)
+
+/-- L-meta-23363 posted 8; the forced reads total 9. -/
+theorem A816891_4x6_not_8 : ¬ RepSizeAtMost A816891_4x6 8 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 4 6 8 A816891_4x6 0 1 3 5
+      (by decide) (by decide) (by decide) (by decide)
+      (Exists.intro 2 (by decide)) (Exists.intro 2 (by decide)) h
   revert key
   decide
 
