@@ -7,3 +7,6 @@ __pycache__/
 # tactic battery and the refutation prober write.
 leanpath.txt
 .refute.*
+# check.sh's flock files, so at most two checks run at once. Runtime state, and
+# committing a lock file would be meaningless; check.sh recreates the directory.
+logs/
