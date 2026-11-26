@@ -179,7 +179,50 @@ def scan() -> int:
     return 0
 
 
+def verdict_of(step_id: str) -> int:
+    """Print ONE word for one step: FALSE, UNDECIDED or NOTAROW.
+
+    --scan prints a block per row and callers were grepping it with a fixed
+    -A window. That silently broke on taller matrices: a 4 by 6 row pushes its
+    VERDICT line one further than a 3 by 5 row, so `grep -A7` found the verdict
+    for 3-row masks and NOTHING for 4-row masks - and a missing verdict read as
+    `undecided`, which is how two rows that were provably false were nearly kept
+    as if they might be winnable. A caller should ask about one row and get one
+    word, with no window to get wrong.
+    """
+    p = S / "steps" / f"{step_id}.json"
+    if not p.is_file():
+        sys.stdout.write("NOTAROW\n")
+        return 2
+    try:
+        stmt = str((json.load(open(p)).get("gap") or {}).get("statement", ""))
+    except (OSError, json.JSONDecodeError):
+        sys.stdout.write("NOTAROW\n")
+        return 2
+    m = ROW_RE.search(stmt)
+    if not m:
+        sys.stdout.write("NOTAROW\n")
+        return 2
+    _, n_s, _, m_s, mask_s, budget_s = m.groups()
+    if not (n_s and m_s):
+        sys.stdout.write("NOTAROW\n")
+        return 2
+    least, _lhs, _rhs, wit = bound(int(mask_s), int(n_s), int(m_s))
+    if wit is None:
+        # Without a path witness only the weaker reads_le bound is available, and
+        # it is already folded into `least`; say so rather than imply the sharp one.
+        sys.stdout.write("FALSE\n" if int(budget_s) < least else "UNDECIDED\n")
+        return 0
+    sys.stdout.write("FALSE\n" if int(budget_s) < least else "UNDECIDED\n")
+    return 0
+
+
 def main(argv: list[str]) -> int:
+    if argv and argv[0] == "--verdict":
+        if len(argv) < 2:
+            sys.stderr.write("usage: promise.py --verdict <step-id>\n")
+            return 2
+        return verdict_of(argv[1])
     if argv and argv[0] == "--scan":
         return scan()
     if len(argv) < 4:
