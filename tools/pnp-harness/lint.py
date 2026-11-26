@@ -50,7 +50,39 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(__doc__ or "")
         return 2
     step_id = argv[0]
-    gap = json.load(open(S / "steps" / f"{step_id}.json"))["gap"]
+    # SAY WHAT IS WRONG AND WHAT TO DO. This used to be a bare json.load, so
+    # passing a FILE PATH - the obvious thing to pass a linter - produced a
+    # FileNotFoundError traceback ending in `steps/../../lean/.../foo.lean.json`,
+    # which reads like a broken tool rather than a misuse. Every diagnostic here
+    # should name the fix, not just the fault.
+    rec = S / "steps" / f"{step_id}.json"
+    if not rec.is_file():
+        looks_like_path = "/" in step_id or step_id.endswith(".lean")
+        sys.stderr.write(
+            f"lint.py: no statement on file for {step_id!r}\n\n"
+            f"  I take a STEP ID, not a file name: lint.py L-meta-1234 [--reduction <k>]\n"
+            f"  The file to check is derived from the id, because the whole point is to\n"
+            f"  compare the file against the statement the desk issued for that step.\n"
+        )
+        if looks_like_path:
+            stem = pathlib.Path(step_id).stem
+            sys.stderr.write(
+                f"\n  That argument looks like a path. If you meant the step whose file is\n"
+                f"  {stem}.lean, pass its id instead.\n"
+                f"  If the file is NOT a step submission - a note, or a proof of something\n"
+                f"  no row asked for - then lint.py does not apply to it at all: there is no\n"
+                f"  posted statement to compare it against. Check it with check.sh, and keep\n"
+                f"  it free of sorry and of double quotes if it may be submitted later.\n"
+            )
+        else:
+            have = sorted(p.stem for p in (S / "steps").glob("L-*.json"))
+            near = [h for h in have if step_id.lstrip("L-").rstrip() in h][:5]
+            sys.stderr.write(f"\n  {len(have)} statements are on file in {S / 'steps'}.\n")
+            if near:
+                sys.stderr.write("  Did you mean: " + ", ".join(near) + "\n")
+            sys.stderr.write("  Draw the step first with desk.sh next, which writes the statement there.\n")
+        return 2
+    gap = json.load(open(rec))["gap"]
     stmt = str(gap["statement"])
     allowed = {str(m) for m in (gap.get("imports") or [])}
 
