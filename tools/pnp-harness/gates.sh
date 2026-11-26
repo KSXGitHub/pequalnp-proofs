@@ -25,7 +25,7 @@ run "unittest"     python3 -m unittest discover -s tests -q
 # holes in prwatch.py the moment it was added: `int(it.get("number") or 0)` on an
 # object-valued dict, and `it.get("pull_request", {}).get("merged_at")`, which
 # raises AttributeError at runtime for any reply whose field is not a dict.
-run "mypy strict"  python3 -m mypy --strict lib read_verdict.py tests triage.py adapt.py reduce.py search promise.py promisehunt.py prwatch.py sentinel.py
+run "mypy strict"  python3 -m mypy --strict lib read_verdict.py tests triage.py adapt.py reduce.py search promise.py promisehunt.py prwatch.py sentinel.py cycle.py
 run "ruff check"   ruff check .
 run "ruff format"  ruff format --check .
 for f in *.sh; do [ -e "$f" ] && run "shellcheck $f" shellcheck -S warning "$f"; done
