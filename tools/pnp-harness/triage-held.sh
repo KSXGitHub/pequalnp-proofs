@@ -26,4 +26,17 @@ except Exception as e:
   gr="$("$S"/pointsets.py "$g" 2>&1 | grep -E 'THIS IS|no all-2-bit|nothing to decode' | head -1)"
   printf '%-16s %-34s %s\n' "$g" "$pts" "${gr:-(no graph)}"
   printf '%-16s   %s\n' '' "$el"
+  # THE COUNTING SCREEN, on every held row. A monotone promise row - one asking
+  # whether a mask fits a budget of AND and OR gates - is decided from below by
+  # the forced-reads count, and the desk posts these as searches while they are
+  # already settled: three rows we held were provably false and we only found out
+  # by looking at them one at a time. This prints nothing for a row of any other
+  # shape, and it never releases anything: the verdict is mine to act on, because
+  # a release is irreversible and an automatic one would eventually fire wrongly.
+  cs="$("$S"/promise.py --scan 2>/dev/null | awk -v id="$g" '
+    $1 == "===" && $2 == id { want = 1; next }
+    $1 == "===" { want = 0 }
+    want && /VERDICT: FALSE/ { print "PROVABLY FALSE by counting - release statement_seems_false"; exit }
+    want && /VERDICT: undecided/ { print "promise row, counting does not settle it - needs a witness"; exit }')"
+  [ -n "$cs" ] && printf '%-16s   %s\n' '' "$cs"
 done
