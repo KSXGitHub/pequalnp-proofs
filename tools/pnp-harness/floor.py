@@ -144,6 +144,26 @@ NEG_RE: Final = re.compile(rf"^\s*{NEG}\s*\(")
 #: `Represents` and its one-hot row set: a PARTIAL specification, which the cover count
 #: cannot bound. See the guard in the loader for the measured reason.
 PARTIAL_SPEC_RE: Final = re.compile(r"\bRepresents\b|\boneEach\b|\bRepSizeAtMost\b")
+
+#: THE AndCount FAMILY, where the cover floor is not merely loose but measures the
+#: wrong thing. This tool printed AT FLOOR - "exactly constructible by a minimum
+#: cover, the best kind of target" - for L-meta-909 on the Petersen graph, and a
+#: worker then spent an hour and a half discovering that the verdict was wrong.
+#:
+#: `AndCountCircuit` is not a gate list over variables. Each AND gate has a LEFT
+#: and a RIGHT side, and a side is a pair: some variables plus some EARLIER GATES,
+#: which it ORs in. Clause (c), the read bound, counts `leftVars` and `rightVars`
+#: only - a side may read as many earlier gates as it likes, for free. So the
+#: object is a DAG with unbounded free internal fan-in, the star-cover count has no
+#: purchase on it, and the structure that actually decides these rows is different
+#: in kind: on Petersen, girth 5 forbids K(2,2), which forces every gate that is
+#: false on all maximal independent sets to be a STAR, and a circuit with no gate
+#: reads at all needs at least ten AND gates where the posted budget was six.
+#:
+#: Both facts were established by exhaustive machine check over the finite domain,
+#: and in the same run size 5 came back UNSAT while size 7 came back SAT, so the
+#: truth sat at the boundary the cover count had declared exactly constructible.
+AND_COUNT_RE: Final = re.compile(r"\bAndCountCircuit\b|\bAndCount\b|\bleftVars\b|\brightVars\b")
 #: What the negation is OF decides whether the floor translates. Negating an EXISTENTIAL
 #: claim ("some circuit of at most N gates computes f", which is what `HasCircuitSize` and
 #: `RepSizeAtMost` unfold to) inverts cleanly. Negating a UNIVERSAL one does NOT: many steps
@@ -1271,6 +1291,30 @@ def analyse(gid: str) -> tuple[Verdict, FloorSource | None, SideConditions, Cost
         #: number and which way the comparison runs.
         negated = "" if claim[0] == "find" else "lower-bound"
         bound = (claim[1], claim[2])
+
+    if AND_COUNT_RE.search(stmt) is not None:
+        return (
+            Verdict(
+                "NO FLOOR APPLIES",
+                "this is an AndCountCircuit row. Each AND gate has a left and a right SIDE, and a"
+                " side ORs in earlier GATES as well as variables - and the read bound counts only"
+                " leftVars and rightVars, so gate reads are FREE. The object is a DAG with"
+                " unbounded free internal fan-in, not a gate list over variables, and the"
+                " star-cover count does not bound it. This tool printed AT FLOOR for L-meta-909"
+                " on Petersen and the verdict was wrong: size 5 is UNSAT and size 7 is SAT, so"
+                " the truth lies at the boundary the count called exactly constructible. What"
+                " governs these rows instead is the gate shape - on Petersen, girth 5 forbids"
+                " K(2,2), forcing every gate false on all maximal independent sets to be a star,"
+                " and a circuit with no gate reads needs at least 10 ANDs against a posted 6",
+                None,
+                bound[0] if bound else None,
+            ),
+            None,
+            SideConditions(),
+            model,
+            info,
+            stmt,
+        )
 
     if PARTIAL_SPEC_RE.search(stmt) is not None:
         #: A PARTIAL ROW SPECIFICATION KILLS THE FLOOR OUTRIGHT, and this was measured, not
