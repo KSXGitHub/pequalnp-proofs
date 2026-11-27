@@ -79,3 +79,74 @@ Agents account for **85% of uncached input** and 39% of cache read.
 Re-run `engines/jobs/tokens.py` at the next datapoint and append a row here.
 What to record each time: the four usage totals for main and agents, the agent
 count, and the number of heartbeat cycles since the last entry.
+
+## Second datapoint, and the conversion it gives
+
+| when | figure |
+|---|---|
+| 2026-11-26 17:30Z | 39% of weekly tokens used |
+| 2026-11-27 04:25Z | **41%** |
+
+Two percentage points over 10.9 hours, and the window is unusually clean for
+measurement: **632 tool calls, every one on the main thread, zero agents
+spawned.** So the delta attributes to one kind of work.
+
+| | measured delta | per 1% of week | implied week (lower bound) |
+|---|---|---|---|
+| tool calls | 632 | 316 | 31,600 |
+| cache read | 404,485,719 | 202,242,860 | 20,224,285,950 |
+| uncached input | 2,661,473 | 1,330,736 | 133,073,650 |
+| output | 766,252 | 383,126 | 38,312,600 |
+| rows settled | 60 | 30 | - |
+
+**One main-thread tool call = 0.00316% of the week** (about 640,000 cache-read
+tokens). **One desk row settled = 0.0333%**, about 10.5 calls each.
+
+### The marginal call costs more than the average one
+
+The session average was about 474,000 cache-read tokens per call. This window's
+MARGINAL cost is 640,000 - 35% higher - because every call re-reads a longer
+conversation. The same work costs more the later in a session it happens, and
+that gap will keep widening. It is the strongest argument for batching and for
+not reopening settled questions.
+
+### Agents are not the only expensive thing
+
+The first 39% was agent-dominated: 71 agents, 83% of all uncached input. This
+window spawned NO agent and still cost two points. Sustained main-thread
+looping is comparable to agent work, which corrects the earlier framing that
+agents were the problem. The lever is CALL COUNT, wherever the calls happen.
+
+### Attribution, with its assumption stated
+
+Converting the whole session at this window's rate, and taking cache reads to
+bill at roughly a tenth of fresh input (the real ratio is not known here):
+4.03 billion cache read plus 89 million uncached is about **23% of the weekly
+budget for this session**, leaving roughly 18% across all other tasks in the
+same week.
+
+CAVEAT, and its direction is known while its size is not: the two points cover
+EVERY task on the account, not only this one. Anything else running in the
+window makes this session's share less than two points, which makes the weekly
+budget larger than estimated and every per-unit figure above an OVER-estimate.
+The only other scheduled task on the account fires once a day and is tiny, so
+the error is probably small.
+
+### To extend the series
+
+Record the next percentage here with the output of `engines/jobs/tokens.py` at
+the same moment. Two datapoints give a rate; three show whether the rate is
+drifting, which it should be - upward, as the conversation grows.
+
+### Where this file lives, since I got it wrong twice
+
+`notes/ours/TOKENS.md` is the ONLY copy and it is edited in the repository
+directly. It is NOT under `notes/ours/engines/`, so `rescue.py` neither copies
+nor overwrites it - and `rescue.py`'s file list does not mention it at all.
+Appending to a scratchpad `TOKENS.md` therefore writes to a file nothing reads,
+and the commit afterwards reports "nothing to commit, working tree clean",
+which looks like success.
+
+The rule that covers both traps: anything under `notes/ours/engines/` is edited
+in the SCRATCHPAD and carried over by rescue; anything else under `notes/ours/`
+is edited in the REPOSITORY. Check which before appending.
