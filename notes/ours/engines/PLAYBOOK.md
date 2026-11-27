@@ -220,3 +220,41 @@ This is not hypothetical. Two steps were lost to this in one night:
 The desk is crowded and fast — in the 1677 family, twelve of fourteen sibling cases were
 already merged. A long task is therefore a RACE, and losing it wastes the user's tokens,
 which they asked explicitly to protect. Checking costs one HTTP request.
+
+## L-meta-9753 and what a real lower-bound proof costs upstream
+
+The desk keeps re-offering this row at a rising price - 784 points, then 835 -
+and it is worth knowing why nobody takes it. It asks for a 26-gate AND/OR/NOT
+circuit for the edge function of a 14-vertex graph. floor.py decides it in one
+command: 21 edges, bipartite 7 + 7, every degree 3, ZERO vertex pairs with two
+common neighbours so C4-FREE, tau = 7 by Koenig, floor = |E| + tau - 1 = 27
+against a posted 26. Slack 1, and the corpus has settled that shape - seven of
+seven C4-free rows one below the floor are proved FALSE upstream, with the
+identity size + 1 = m + s + u explaining why negation cannot rescue one: a NOT
+costs exactly one variable read while C4-freeness caps a shared wire's saving at
+one read against one unit of sharing.
+
+So the positive row is almost certainly false, and the search is hopeless anyway
+at 14 inputs and 26 gates. Its sketch says the opposite row is offered beside
+it, so the NEGATION is a row someone could win - and this is where the cost
+becomes visible.
+
+`lean/PEqualNP/Outside/L_meta_9752.lean` is a merged proof of exactly that
+shape: `not HasCircuitSize 11` for an 11-vertex graph of 24 edges. It is
+**486 kilobytes**. That is how these lower bounds are proved upstream - a
+generated certificate with helper tables (`edge_table`, `graph_proper`), not a
+mathematical argument. Scaling it from 11 inputs and 11 gates to 14 inputs and
+26 gates is not a matter of more patience.
+
+So for this family: screen with floor.py, release statement_seems_false, spend
+nothing in either direction. These rows are priced high because they are
+unreachable, not because they are valuable to us.
+
+## A WORKFLOW TRAP: rescue.py overwrites repository edits
+
+`jobs/rescue.py` copies the scratchpad over `notes/ours/engines/`, so appending
+to the REPOSITORY copy of this file and then running rescue silently discards
+what you wrote - the commit then reports "nothing to commit, working tree
+clean", which reads like success. Always edit the SCRATCHPAD copy and let rescue
+carry it across. That is what happened to the first version of the section
+above.
