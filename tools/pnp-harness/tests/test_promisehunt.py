@@ -58,10 +58,6 @@ class IsUnsat(unittest.TestCase):
         self.assertFalse(promisehunt.is_unsat("UNSATISFIABLE"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OneParserOnly(unittest.TestCase):
     """promisehunt must read rows through promise.parse_row, not a copy of it.
 
@@ -85,4 +81,12 @@ class OneParserOnly(unittest.TestCase):
         # must not define its own row pattern.
         src = pathlib.Path(promisehunt.__file__).read_text()
         self.assertIn("promise.parse_row", src)
-        self.assertNotIn("RepSizeAtMost\\\\s*\\\\(fun", src)
+        # Build the needle with chr(92) rather than a backslash escape: the first
+        # version of this line was written through a heredoc, which doubled the
+        # backslashes, so it searched for a literal that can never occur and the
+        # guard could not fail. A test that cannot fail is worse than no test.
+        self.assertNotIn("RepSizeAtMost" + chr(92) + "s", src)
+
+
+if __name__ == "__main__":
+    unittest.main()
