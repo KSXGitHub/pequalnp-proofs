@@ -216,3 +216,52 @@ class VerdictMode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReduceShape(unittest.TestCase):
+    """The arity rule that cost a submission: a reduction needs 2 to 4 children.
+
+    Upstream refused PR 35261 - a correct 379-line reduction - because its type
+    reduced the statement to ONE sub-problem:
+
+        must have the type T1 -> ... -> Tk -> S with 2 <= k <= 4 children
+        before the recorded statement S; it has 1 leading binders
+
+    The rule appears in neither join.txt nor the step record, so it is checked
+    before submitting rather than discovered after.
+    """
+
+    ARROW = chr(0x2192)
+    S = "PEqualNP.Foo.bar 3 7"
+
+    def test_counts_top_level_arrows_only(self) -> None:
+        import lint
+
+        # A nested arrow is part of ONE hypothesis, not a second child.
+        self.assertEqual(lint.reduction_children(f"(A {self.ARROW} B) {self.ARROW} {self.S}", self.S), 1)
+
+    def test_counts_two_and_four(self) -> None:
+        import lint
+
+        self.assertEqual(lint.reduction_children(f"A {self.ARROW} B {self.ARROW} {self.S}", self.S), 2)
+        self.assertEqual(
+            lint.reduction_children(f"A {self.ARROW} B {self.ARROW} C {self.ARROW} D {self.ARROW} {self.S}", self.S),
+            4,
+        )
+
+    def test_a_bare_statement_has_no_children(self) -> None:
+        import lint
+
+        self.assertEqual(lint.reduction_children(self.S, self.S), 0)
+
+    def test_returns_none_rather_than_guessing(self) -> None:
+        import lint
+
+        # If the statement is not in the type, a count would be a guess - and a
+        # wrong count would either reject a good file or pass a bad one.
+        self.assertIsNone(lint.reduction_children("nothing like it here", self.S))
+
+    def test_brackets_other_than_parentheses_also_nest(self) -> None:
+        import lint
+
+        self.assertEqual(lint.reduction_children(f"[A {self.ARROW} B] {self.ARROW} {self.S}", self.S), 1)

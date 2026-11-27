@@ -38,6 +38,40 @@ OK_OPTIONS: Final = ("maxRecDepth", "maxHeartbeats", "synthInstance.maxSize", "s
 DECL: Final = re.compile(r"(theorem|lemma|def|abbrev|instance|structure|inductive|class)\b")
 
 
+def reduction_children(type_text: str, statement: str) -> int | None:
+    """How many hypotheses a reduction takes before the posted statement.
+
+    THE RULE, learned from an upstream rejection rather than from join.txt. PR
+    35261 carried a correct 379-line reduction and was refused:
+
+        REJECTED (reduce-shape): R_meta_11461_1 must have the type
+        T1 -> ... -> Tk -> S with 2 <= k <= 4 children before the recorded
+        statement S; it has 1 leading binders beyond the 0 of S
+
+    So a reduction to a SINGLE sub-problem is not accepted as a reduction at
+    all, however correct it is, and neither is one to five or more. Checking the
+    arity before submitting costs nothing; discovering it afterwards cost a
+    whole submission.
+
+    Returns the count, or None when the statement cannot be located in the type
+    (in which case the caller must not guess - a wrong count here would reject a
+    good file or pass a bad one).
+    """
+    head = type_text.find(statement.strip())
+    if head < 0:
+        return None
+    depth = 0
+    children = 0
+    for ch in type_text[:head]:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "\u2192" and depth == 0:
+            children += 1
+    return children
+
+
 def reduction_name(step_id: str, k: int) -> str:
     m = re.fullmatch(r"L-([a-z0-9]+)-(\d+)", step_id)
     if not m:
@@ -155,6 +189,34 @@ def main(argv: list[str]) -> int:
         bad.append("`sorry` is still in the file")
     if re.search(r"^\s*axiom\b", rest, re.M):
         bad.append("a new `axiom` is declared")
+
+    # THE REDUCE-SHAPE RULE, which cost a whole submission to learn. PR 35261
+    # carried a correct 379-line reduction and upstream refused it: a reduction
+    # must have the type T1 -> ... -> Tk -> S with 2 <= k <= 4 children, and
+    # ours reduced to ONE sub-problem. The rule is in neither join.txt nor the
+    # step record, so it is checked here instead of discovered afterwards.
+    if is_reduction:
+        ty = re.search(r"theorem\s+" + re.escape(module) + r"\s*:(.*?):=", text, re.S)
+        if ty is None:
+            bad.append(
+                "could not locate the theorem's type, so its arity cannot be checked"
+                " -> the file must declare `theorem " + module + " : ... := ...`"
+            )
+        else:
+            children = reduction_children(ty.group(1), stmt)
+            if children is None:
+                bad.append(
+                    "the posted statement does not appear in the theorem's type, so the"
+                    " reduction's arity cannot be counted -> fix the verbatim statement first"
+                )
+            elif not 2 <= children <= 4:
+                bad.append(
+                    f"REDUCE-SHAPE: this reduction takes {children} hypotheses before the posted"
+                    " statement, and upstream requires BETWEEN 2 AND 4. A reduction to a"
+                    " single sub-problem is refused however correct it is (seen on PR 35261:"
+                    " `must have the type T1 -> ... -> Tk -> S with 2 <= k <= 4 children`)."
+                    " -> split the hypothesis, or state the two halves the proof actually uses"
+                )
 
     # The one theorem, carrying the posted statement verbatim. A proof states it
     # directly; a reduction states it as the conclusion after its hypotheses, so
