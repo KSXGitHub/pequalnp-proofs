@@ -112,6 +112,41 @@ def solve(gates: int, require_not: bool, seconds: int, tight: bool, tag: str) ->
     return "SAT", f"{dt:.1f}s | {nots} NOT | {E.lean_gate_list(got)} | output {ow}"
 
 
+def solve_pinned(gates: int, pos: int, seconds: int, tight: bool) -> tuple[str, str]:
+    """Require gate `pos` itself to be the NOT, instead of one existing somewhere.
+
+    WHY SPLIT. "Some gate is a NOT" is a single wide disjunction over every NOT
+    selector of every gate, and the solver has to search the whole space at once:
+    both loose and tight timed out at about 500 seconds, while the SAME instance
+    without the NOT requirement solved in ten. Pinning the position turns one
+    hard question into `gates` much tighter ones. If every one is UNSAT the row
+    is false, because any circuit with a NOT has it at some position; if one is
+    SAT it is a witness and the row is won. This is cube-and-conquer on the only
+    free choice the requirement leaves.
+    """
+    rs = rows()
+    enc = E.build(N, gates, rs, tight, tight, False)
+    lits = [v for f, v in enc.sel[pos].items() if f.op == "not"]
+    if not lits:
+        return "NO-NOT-FORMS", f"gate {pos} has no NOT form"
+    enc.cnf.add(lits)
+    WORK.mkdir(parents=True, exist_ok=True)
+    path = WORK / f"pin_s{gates}_g{pos}{chr(95)}{int(tight)}.cnf"
+    enc.cnf.write(path)
+    status, assign, dt = E.run_solver(E.find_solver(), path, seconds)
+    if status != "SAT":
+        return status, f"{dt:.1f}s"
+    got = E.decode(enc, assign)
+    ow = N + len(got) - 1
+    if [1 for bits, want in rs if E.simulate(got, bits, ow) != want]:
+        return "DECODE-MISMATCH", ""
+    nots = sum(1 for g in got if g.op == "not")
+    (WORK / f"witness_pin_g{pos}.txt").write_text(
+        f"{E.lean_gate_list(got)}\noutput wire {ow}\nNOT gates: {nots}\n"
+    )
+    return "SAT", f"{dt:.1f}s | {nots} NOT | {E.lean_gate_list(got)} | output {ow}"
+
+
 def main() -> int:
     rs = rows()
     ones = sum(1 for _b, w in rs if w)
