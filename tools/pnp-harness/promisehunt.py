@@ -53,6 +53,8 @@ import subprocess
 import sys
 from typing import Final
 
+import promise
+
 S: Final = pathlib.Path(__file__).absolute().parent
 #: The monotone engine copy. It lives in the session scratchpad rather than in the
 #: repository because it is a working tool, not a deliverable, and it does not meet
@@ -80,28 +82,28 @@ def is_unsat(verdict: str) -> bool:
 def row_of(step_id: str) -> tuple[int, int, int, int] | None:
     """(mask, n, m, budget) read from the step's own statement, never typed by hand.
 
+    THIS USED TO CARRY ITS OWN COPY OF THE PATTERN, and the copies drifted:
+    promise.py learned the shared-binder form `fun u v : Fin 8 =>` and this did
+    not, so `promise.py --verdict` called L-meta-20249 UNDECIDED - the one shape
+    in that family that can still be WON - while this tool refused it as not a
+    promise row at all. Wins were being dropped on the floor by a duplicated
+    regex. There is now one parser, in promise.py, and one place to fix.
+
     Typing a budget from a row TITLE went wrong twice in one sitting: 20464 and
-    20940 read 5 and 8 in their statements where their titles suggested 6 and 7,
-    and with the wrong number one of them screened as undecided when it is false.
+    20940 read 5 and 8 in their statements where their titles suggested 6 and 7.
     """
     p = S / "steps" / f"{step_id}.json"
     if not p.is_file():
         sys.stderr.write(f"no statement on file for {step_id}; draw it first with desk.sh next\n")
         return None
     stmt = str((json.load(open(p)).get("gap") or {}).get("statement", ""))
-    m = re.search(
-        r"RepSizeAtMost\s*\(fun[^=]*Fin\s*(\d+)[^=]*Fin\s*(\d+)[^=]*=>\s*\(?\s*(\d+)"
-        r"[^)]*\)?[^)]*\.testBit[^)]*\)\s*\)\s*(\d+)",
-        stmt,
-    )
-    if not m:
+    got = promise.parse_row(stmt)
+    if got is None:
         sys.stderr.write(
             f"{step_id} is not a monotone promise row (no RepSizeAtMost over a testBit mask).\n"
             "This tool only handles that family; read the statement and pick the right tool.\n"
         )
-        return None
-    n, mm, mask, budget = (int(g) for g in m.groups())
-    return mask, n, mm, budget
+    return got
 
 
 def search(mask: int, n: int, m: int, gates: int, seconds: int) -> tuple[str, str]:

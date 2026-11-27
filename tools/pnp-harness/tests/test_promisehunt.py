@@ -21,8 +21,10 @@ message, or any future wording the engine might print.
 
 from __future__ import annotations
 
+import pathlib
 import unittest
 
+import promise
 import promisehunt
 
 
@@ -58,3 +60,29 @@ class IsUnsat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OneParserOnly(unittest.TestCase):
+    """promisehunt must read rows through promise.parse_row, not a copy of it.
+
+    It carried its own copy of the pattern and the copies drifted: promise.py
+    learned the shared-binder form `fun u v : Fin 8 =>` and this did not. So
+    `promise.py --verdict` called L-meta-20249 UNDECIDED - the one shape in that
+    family that can still be WON - while promisehunt refused it as not a promise
+    row at all, and wins were being dropped by a duplicated regex.
+    """
+
+    def test_shared_binder_rows_are_parsed(self) -> None:
+        nat = chr(0x2115)
+        stmt = (
+            "PEqualNP.Represents.RepSizeAtMost (fun u v : Fin 8 => "
+            f"(4868853174714768465 : {nat}).testBit (8 * u.val + v.val)) 24"
+        )
+        self.assertEqual(promise.parse_row(stmt), (4868853174714768465, 8, 8, 24))
+
+    def test_promisehunt_delegates_to_the_single_parser(self) -> None:
+        # If a second regex is ever reintroduced here, this fails: the module
+        # must not define its own row pattern.
+        src = pathlib.Path(promisehunt.__file__).read_text()
+        self.assertIn("promise.parse_row", src)
+        self.assertNotIn("RepSizeAtMost\\\\s*\\\\(fun", src)
