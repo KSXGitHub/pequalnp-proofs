@@ -2,9 +2,9 @@ import PEqualNP.Defs
 import PEqualNP.MetaComplexity.Helpers.RepPath
 
 /-!
-# 33 posted promise rows are false, and the template that makes them is one unit short
+# 34 posted promise rows are false, and the template that makes them is one unit short
 
-This file proves 33 posted statements false, by citing a lemma this repository
+This file proves 34 posted statements false, by citing a lemma this repository
 already carries. It is offered unsolicited, with no gap id, because these rows
 are posted in one direction only and so there is no row to attach a negation to.
 The reason for sending it anyway is the last section: the template generating
@@ -49,6 +49,7 @@ exists, and it is exhibited in the proof term.
 | L-meta-21774 | 4 x 6 | 266744 | 9 | 4 + 6 | 10 |
 | L-meta-21861 | 4 x 6 | 321471 | 8 | 4 + 5 | 9 |
 | L-meta-23322 | 4 x 6 | 807423 | 6 | 4 + 3 | 7 |
+| L-meta-20967 | 4 x 5 | 112573 | 8 | 4 + 5 | 9 |
 | L-meta-21834 | 4 x 6 | 288447 | 8 | 4 + 5 | 9 |
 | L-meta-23093 | 3 x 6 | 30443 | 8 | 3 + 6 | 9 |
 | L-meta-20926 | 4 x 5 | 40187 | 7 | 3 + 5 | 8 |
@@ -78,7 +79,7 @@ which holds unconditionally and gives `card sum <= s + 1`. `RepPath.path` gives
 does. So each row is posted one below its own floor, the gap is believed to be
 one, and the family is generated as searches that cannot succeed.
 
-These 33 were drawn and screened in a single session; every one whose budget fell
+These 34 were drawn and screened in a single session; every one whose budget fell
 below the sharp floor was false. Using `path` rather than `reads_le` when the
 witness exists would stop the family being generated this way.
 
@@ -406,6 +407,21 @@ theorem A807423_4x6_not_6 : ¬ RepSizeAtMost A807423_4x6 6 := by
     PEqualNP.MetaComplexity.RepPath.path 4 6 6 A807423_4x6 1 2 2 1
       (by decide) (by decide) (by decide) (by decide)
       (Exists.intro 3 (by decide)) (Exists.intro 3 (by decide)) h
+  revert key
+  decide
+
+
+/-- The 4 by 5 mask of L-meta-20967: rows `1.111`, `1.111`, `1.11.`, `11...`. -/
+def A112573_4x5 : Fin 4 → Fin 5 → Bool :=
+  fun u v => (112573 : ℕ).testBit (5 * u.val + v.val)
+
+/-- L-meta-20967 posted 8; the forced reads total 9. -/
+theorem A112573_4x5_not_8 : ¬ RepSizeAtMost A112573_4x5 8 := by
+  intro h
+  have key :=
+    PEqualNP.MetaComplexity.RepPath.path 4 5 8 A112573_4x5 0 2 2 4
+      (by decide) (by decide) (by decide) (by decide)
+      (Exists.intro 1 (by decide)) (Exists.intro 3 (by decide)) h
   revert key
   decide
 
