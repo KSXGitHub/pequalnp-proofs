@@ -147,6 +147,44 @@ def solve_pinned(gates: int, pos: int, seconds: int, tight: bool) -> tuple[str, 
     return "SAT", f"{dt:.1f}s | {nots} NOT | {E.lean_gate_list(got)} | output {ow}"
 
 
+def solve_pinned_operand(gates: int, pos: int, operand: int, seconds: int) -> tuple[str, str]:
+    """Pin BOTH the NOT's gate position and the wire it reads.
+
+    Pinning the position alone did not help: all five positions tried timed out
+    at 100 seconds each, so the hardness is not the disjunction over positions.
+    Pinning the operand too makes each cube far narrower - gate `pos` must be
+    exactly `not operand` - and there are only sum over j of (6 + j) of them,
+    ninety in all for nine gates. If every cube is UNSAT the row is false; one
+    SAT is a witness.
+
+    The operand must be a wire that exists when gate `pos` runs: inputs 0..5 and
+    the gates before it, so operand < 6 + pos.
+    """
+    if operand >= N + pos:
+        return "SKIP", f"wire {operand} does not exist at gate {pos}"
+    rs = rows()
+    enc = E.build(N, gates, rs, False, False, False)
+    want = [v for f, v in enc.sel[pos].items() if f.op == "not" and tuple(f.ins) == (operand,)]
+    if not want:
+        return "NO-FORM", f"gate {pos} has no `not {operand}` form"
+    for v in want:
+        enc.cnf.add([v])
+    WORK.mkdir(parents=True, exist_ok=True)
+    path = WORK / f"cube_g{pos}_w{operand}.cnf"
+    enc.cnf.write(path)
+    status, assign, dt = E.run_solver(E.find_solver(), path, seconds)
+    if status != "SAT":
+        return status, f"{dt:.1f}s"
+    got = E.decode(enc, assign)
+    ow = N + len(got) - 1
+    if [1 for bits, w in rs if E.simulate(got, bits, ow) != w]:
+        return "DECODE-MISMATCH", ""
+    (WORK / f"witness_g{pos}_w{operand}.txt").write_text(
+        f"{E.lean_gate_list(got)}\noutput wire {ow}\n"
+    )
+    return "SAT", f"{dt:.1f}s | {E.lean_gate_list(got)} | output {ow}"
+
+
 def main() -> int:
     rs = rows()
     ones = sum(1 for _b, w in rs if w)

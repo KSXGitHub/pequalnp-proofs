@@ -258,3 +258,25 @@ what you wrote - the commit then reports "nothing to commit, working tree
 clean", which reads like success. Always edit the SCRATCHPAD copy and let rescue
 carry it across. That is what happened to the first version of the section
 above.
+
+### 16088 follow-up: cubing on (position, operand) does not help either
+
+The note above suggested pinning the NOT's OPERAND as well as its position. That
+has now been tried and it fails the same way. Thirteen cubes covering gate 0
+(wires 0-5) and gate 1 (wires 0-6), each requiring gate `pos` to be exactly
+`not operand`, at 35 seconds apiece: THIRTEEN TIMEOUTS, ZERO UNSAT.
+
+So the hardness is intrinsic to the instance, not to the shape of the
+requirement. Three successively narrower formulations all failed - one wide
+disjunction, nine position cubes, ninety position-and-operand cubes - while the
+SAME instance without the NOT requirement solves in ten seconds. Adding the NOT
+removes whatever structure the solver was exploiting, and narrowing the cube
+does not give it back.
+
+DO NOT spend more solver time on this row with this encoder. If anyone returns
+to it, the remaining ideas are structural rather than combinatorial: encode the
+cancellation shape directly (a NOT whose output feeds a gate that restores
+monotonicity is the only form that can appear in a circuit for a monotone
+function), or use a different synthesis encoding altogether - the
+one-hot-index-per-input-slot scheme noted in ONE-NOT-and-the-padding-lemma.md,
+which drops the clause count from about O(s n^2 2^n) to about O(s n 2^n).
